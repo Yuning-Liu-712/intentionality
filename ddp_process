@@ -1,0 +1,250 @@
+from pathlib import Path
+import zipfile
+import pandas as pd
+import numpy as np
+import os
+import shutil
+from openai import OpenAI
+import textwrap
+import json
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo  # Python 3.9+
+
+
+# Set the directory path
+folder_path = Path('D:\\my research\\my ema1\\data_collection_tracking')
+ddp_path = Path('D:\\my research\\my ema1\\data_collection_tracking\\ddp_project_extracted\\20250903_new_project\\20250903_new_project')
+
+da = pd.read_csv(folder_path / 'final_data_ema_0906.csv')
+dc = pd.read_csv(folder_path / 'smu_for_analysis_withclass_baseline_endline_0906.csv')
+
+## know their time zone
+bl1 = pd.read_csv(folder_path / 'tt_baseline1.csv')
+bl2 = pd.read_csv(folder_path / 'tt_baseline2.csv')
+
+bl1[['LocationLatitude', 'LocationLongitude']].isna().any()
+from timezonefinder import TimezoneFinder
+tf = TimezoneFinder()
+
+def get_timezone(lat, lon):
+    if pd.notna(lat) and pd.notna(lon):
+        try:
+            return tf.timezone_at(lat=lat, lng=lon)
+        except Exception:
+            return None
+    return None
+
+# Apply row-wise
+bl1["timezone"] = bl1.apply(
+    lambda row: get_timezone(row["LocationLatitude"], row["LocationLongitude"]), axis=1
+)
+bl2["timezone"] = bl2.apply(
+    lambda row: get_timezone(row["LocationLatitude"], row["LocationLongitude"]), axis=1
+)
+bl2["timezone"].unique()
+bl1["timezone"].unique()
+bl = pd.concat([bl1[['timezone', 'PROLIFIC_PID']], bl2[['timezone', 'PROLIFIC_PID']]], axis=0)
+bl = bl.rename(columns={'PROLIFIC_PID':'PID'})
+bl = bl.drop_duplicates().reset_index(drop=True)
+bl = bl[bl['timezone'].notna()].reset_index(drop=True)
+bla = bl.loc[bl['PID'].isin(da['PID'].to_list()),:].reset_index(drop=True)
+assert dc.shape[0] == pd.merge(dc, bla, on=['PID'], how='inner').shape[0]
+dc = pd.merge(dc, bla, on=['PID'], how='left')
+dc['timezone'].unique()
+assert da.shape[0] == pd.merge(da, bla, on=['PID'], how='inner').shape[0]
+da = pd.merge(da, bla, on=['PID'], how='left')
+da['timezone'].unique()
+da.to_csv(folder_path / 'final_data_ema_0906.csv', index=False)
+dc.to_csv(folder_path / 'smu_for_analysis_withclass_baseline_endline_0906.csv', index=False)
+
+## where is my ddp
+pidt = '613509614cefef50fcfbb9d1'
+example_ddp = ddp_path / f'assignment=378_task=868_participant={pidt}_source=TikTok_key=1753487979491.json'
+
+# Read JSON file into Python dict
+with open(example_ddp, "r", encoding="utf-8") as f:
+    df = json.load(f)
+keysl = []
+for i in range(len(df)):
+    keysl.append(list(df[i].keys())[0])
+for i in range(len(df)):
+    print(keysl[i])
+    print(pd.DataFrame(df[i][keysl[i]]).columns)
+
+# get all entries (files + subfolders)
+all_entries = os.listdir(ddp_path)
+pidt_l = [x.split('868_participant=')[1].split('_')[0] for x in all_entries]
+pidt_l = [x for x in pidt_l if len(x)>10]
+pidt_l = list(set(pidt_l))
+
+## start from here ddp
+resaa = pd.DataFrame()
+num_finish = 0
+check_pidt_l = []
+df_is_na_l = []
+for pidt in pidt_l[93:]: # pidt = pidt_l[1]
+    if pidt in da['PID'].tolist():
+        matched_files = [x for x in all_entries if pidt in x]
+        if len(matched_files)==1:
+            example_ddp = ddp_path / matched_files[0]
+        else:
+            sizes = {}
+            for f in matched_files:
+                full_path = ddp_path / f
+                try:
+                    size_bytes = os.path.getsize(full_path)
+                    sizes[f] = size_bytes
+                except FileNotFoundError:
+                    sizes[f] = None  # mark missing files
+
+            # Find the largest file
+            largest_file = max(sizes, key=lambda k: (sizes[k] is not None, sizes[k]))
+            example_ddp = ddp_path / largest_file
+
+        with open(example_ddp, "r", encoding="utf-8") as f:
+            df = json.load(f)
+        if (df != []) and (df != '{"status" : "data_submission declined"}'):
+            ## drop setting
+            keysla = []
+            for i in range(len(df)):
+                cat_name = list(df[i].keys())[0]
+                keysla.append(cat_name)
+            if 'tiktok_settings' in keysla:
+                df = [d for d in df if "tiktok_settings" not in d]
+
+            keysl = []
+            seq_l = []
+            for i in range(len(df)):
+                cat_name = list(df[i].keys())[0]
+                if cat_name != 'tiktok_settings':
+                    keysl.append(cat_name)
+                    seq_l.append(i)
+            catname_l = ['tiktok_favorite_videos',
+                         'tiktok_following',
+                         'tiktok_like_list',
+                         'tiktok_login_history',
+                         'tiktok_searches',
+                         'tiktok_share_history',
+                         'tiktok_video_browsing_history',
+                         'tiktok_comments',
+                         'tiktok_post']
+            catt_l = ['fav', 'fol', 'like', 'login', 'search', 'share', 'view', 'comment', 'post']
+            link = dict(zip(catname_l, catt_l))
+
+            exist_cat_l = []
+            for i in keysl:
+                exist_cat_l.append(link[i])
+            linkd = dict(zip(exist_cat_l, seq_l))
+            ##the earlist / latest date
+            all_times = []
+            for i in range(len(df)):
+                key = keysl[i]
+                try:
+                    sub_df = pd.DataFrame(df[i][key])
+
+                    # find columns that look like time
+                    time_cols = [c for c in sub_df.columns if "time" in c.lower() or "date" in c.lower()]
+
+                    if time_cols:
+                        for c in time_cols:
+                            # convert to datetime (skip invalid formats)
+                            times = pd.to_datetime(sub_df[c], errors="coerce", utc=True)
+                            all_times.extend(times.dropna().tolist())
+
+                except Exception as e:
+                    print(f"Error with {key}: {e}")
+
+            earliest_time = min(all_times) if all_times else np.nan
+            latest_time = max(all_times) if all_times else np.nan
+            tt_used_days = (latest_time - earliest_time).days + 2
+            tt_active_days = pd.to_datetime(pd.Series(all_times), errors="coerce", utc=True).dropna().dt.date.nunique()
+            assert tt_active_days <= tt_used_days
+
+            ## link
+
+            resa = da.loc[da['PID']==pidt, ['Start Date']]
+            survey_starts = da.loc[da['PID']==pidt, 'Start Date'].tolist() ## in local time
+
+            ## merge for each category -- favorite
+            #catt = 'fav'
+            for catt in exist_cat_l[0:]:
+                tb = pd.DataFrame(df[linkd[catt]][keysl[linkd[catt]]]).rename(columns={'Time and date': 'time',
+                                                                                       'Time and Date': 'time',
+                                                                                       'Date':'time'})
+                ## individual level
+                freq_person = tb.shape[0]
+                density_person = tb.shape[0] / tt_used_days if tt_used_days>0 else np.nan
+
+                if tb.shape[0] != 0:
+                    ## burst level
+                    assert da.loc[da['PID']==pidt, 'timezone'].nunique() == 1
+                    person_tz = da.loc[da['PID']==pidt, 'timezone'].unique()[0]
+                    event_times = tb['time'].tolist() ## in UTC
+
+                    # 1) Parse survey starts as naive local times, then localize to person_tz, then convert to UTC
+                    surv = pd.to_datetime(pd.Series(survey_starts), errors="coerce")  # parse strings
+                    surv_local = surv.dt.tz_localize(person_tz, nonexistent="shift_forward", ambiguous="NaT")
+                    surv_utc = surv_local.dt.tz_convert("UTC")
+
+                    # 2) Parse event times directly as UTC (handles strings like "... UTC")
+                    ev_utc = pd.to_datetime(pd.Series(event_times), errors="coerce", utc=True)
+
+                    # Drop any unparsable times
+                    n_missing = surv_utc[surv_utc.isna()].shape[0]
+                    assert n_missing == 0, f"Found {n_missing} invalid survey start times: {surv_utc[surv_utc.isna()].tolist()}"
+                    n_missing2 = ev_utc[ev_utc.isna()].shape[0]
+                    assert n_missing2 == 0, f"Found {n_missing2} invalid event start times: {ev_utc[ev_utc.isna()].tolist()}"
+                    assert len(event_times) == len(ev_utc)
+                    assert len(survey_starts) == len(surv_utc)
+                    #surv_utc = surv_utc.dropna().sort_values().reset_index(drop=True)
+                    #ev_utc = ev_utc.dropna().sort_values().reset_index(drop=True)
+
+                    tmpd = dict()
+                    for i in range(len(survey_starts)):
+
+                        s = surv_utc[i]
+                        s_original = survey_starts[i]
+                        # s = pd.Timestamp(datetime(2025, 7, 20, 5, 5, tzinfo=timezone.utc))
+
+                        window_start = s - pd.Timedelta(minutes=61)
+                        matches = ev_utc[(ev_utc >= window_start) & (ev_utc <= s)].sort_values()
+                        tmpd[s_original] = matches.shape[0]
+
+                else:
+                    tmpd = dict(zip(survey_starts, [0]*len(survey_starts)))
+                res = pd.DataFrame([tmpd]).T.reset_index().rename(columns={'index':'Start Date', 0: f'ddp_num_{catt}_burst'})
+                res[f'ddp_num_{catt}_person'] = freq_person
+                res[f'ddp_density_{catt}_person'] = density_person
+
+                assert pd.merge(resa, res, on=['Start Date'], how='inner').shape[0] == resa.shape[0] == len(survey_starts), f'resa andres doe snot match in cat:: {catt}'
+                resa = pd.merge(resa, res, on=['Start Date'], how='inner')
+                print(f'{pidt} - {catt} - done! resa has {resa.shape}')
+
+            resa['ddp_used_days'] = tt_used_days
+            resa['ddp_active_days'] = tt_active_days
+            resa['PID'] = pidt
+            resaa = pd.concat([resaa, resa], axis=0)
+            resaa.to_csv(folder_path / 'ddp_processed_0907.csv', index=False)
+            num_finish = num_finish + 1
+            print(f'{num_finish} out of 200+ done! Finished: {pidt}')
+        else:
+            df_is_na_l.append(example_ddp)
+            print(f'{example_ddp} is na')
+    else:
+        check_pidt_l.append(pidt)
+        print(f'{pidt} not in da')
+
+
+resaa = resaa.drop_duplicates().reset_index(drop=True)
+resaa.to_csv(folder_path / 'ddp_processed_0907.csv', index=False)
+assert resaa.shape[0] == resaa[['Start Date', 'PID']].drop_duplicates().shape[0]
+assert da.shape[0] == da[['Start Date', 'PID']].drop_duplicates().shape[0]
+assert dc.shape[0] == dc[['Start Date', 'PID']].drop_duplicates().shape[0]
+dc.shape
+da = pd.merge(da, resaa, on=['Start Date', 'PID'], how='left')
+dc = pd.merge(dc, resaa, on=['Start Date', 'PID'], how='left')
+da.to_csv(folder_path / 'final_data_ema_0907.csv', index=False)
+dc.to_csv(folder_path / 'smu_for_analysis_withclass_baseline_endline_0907.csv', index=False)
