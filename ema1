@@ -1,0 +1,858 @@
+library(dplyr)
+library(lme4)
+library(lmerTest)
+library(ggplot2)
+library(scales)
+library(parameters)
+library(performance)
+library(stringr)
+
+
+setwd('D:\\my research\\my ema1\\data_collection_tracking\\res\\res_0907')
+dc = read.csv('D:\\my research\\my ema1\\data_collection_tracking\\smu_for_analysis_withclass_baseline_endline_0907.csv')
+
+plot_p2 = function(dc, outcome, subgroup){
+  if (subgroup=='all'){
+    title_text_p1 =  paste0("Observed Within-Person Association: \n", str_to_sentence(outcome), ' ~ SMU intentionality')
+    subtitle_text_p1 = ""
+    save_p1 = paste0("p2_", outcome,"_all_observed.png")
+    
+  } else {
+    
+    list1 <- c('motivation_coping_entertain', 'motivation_information_productivity',
+               'motivation_connection_expression', 'motivation_habitual_passing',
+               'motivation_trigger_driven', 'motivation_not_clear')
+    list2 <- c('entertainment, relaxation, coping', 'information seeking，productivity',
+               'social connection & expression', 'habitual use & passing time',
+               'trigger driven use', 'activity or context only')
+    my_dict <- setNames(list2, list1)
+    motive = my_dict[[subgroup]]
+    
+    title_text_p1 =  paste0("Observed Within-Person Association: \n", str_to_sentence(outcome), ' ~ SMU intentionality')
+    subtitle_text_p1 = paste0("Motivation subgroup: ", motive)
+    save_p1 = paste0("p2_", outcome,"_", subgroup, "_observed.png")
+    
+  }
+  
+  dc = dc %>% mutate(outcomehere = !!rlang::sym(outcome))
+  
+  p = ggplot(dc, aes(x=smu_intention_state, y=outcomehere, group=factor(PID), colour="wheat1"), 
+             legend=FALSE) +
+    geom_smooth(method=lm, se=FALSE, fullrange=FALSE, lty=1, 
+                linewidth=.4, color="wheat1") +
+    geom_smooth(aes(group=1), method=lm, se=T, fullrange=FALSE, lty=1, 
+                linewidth=1.2, color="coral4") +
+    labs(
+      x = "SMU Intentionality State",
+      y = str_to_sentence(outcome),
+      title = title_text_p1,
+      subtitle = subtitle_text_p1
+    ) +
+    #scale_x_continuous(breaks = 1:5, limits = c(1, 5)) +
+    theme_classic() +
+    theme(
+      plot.title=element_text(size=13, hjust=0,face='bold'),
+      plot.subtitle = element_text(size = 12, margin = margin(t = 2)), 
+      axis.title=element_text(size=11),
+      axis.text=element_text(size=11)
+    ) 
+  
+  #p
+  ggsave(save_p1, bg='white',plot = p, width = 6, height = 4, dpi = 300, units = "in")
+  print(paste0(save_p1, ' done!'))
+}
+
+plot_p5 = function(dc_imeans, x_var='smu_intention', x_var_name='SMU Intentionality', outcome, subgroup){
+  if (subgroup=='all'){
+    title_text_p1 =  paste0("Between-Person Association: \n", str_to_sentence(outcome), ' ~ ', x_var_name)
+    subtitle_text_p1 = ""
+    save_p1 = paste0("p5_", x_var,'_',outcome,"_all.png")
+    
+  } else {
+    
+    list1 <- c('motivation_coping_entertain', 'motivation_information_productivity',
+               'motivation_connection_expression', 'motivation_habitual_passing',
+               'motivation_trigger_driven', 'motivation_not_clear')
+    list2 <- c('entertainment, relaxation, coping', 'information seeking，productivity',
+               'social connection & expression', 'habitual use & passing time',
+               'trigger driven use', 'activity or context only')
+    my_dict <- setNames(list2, list1)
+    motive = my_dict[[subgroup]]
+    
+    title_text_p1 =  paste0("Between-Person Association: \n", str_to_sentence(outcome), ' ~ ', x_var_name)
+    subtitle_text_p1 = paste0("Motivation subgroup: ", motive)
+    save_p1 = paste0("p5_", x_var,'_',outcome,"_",subgroup,".png")
+    
+  }
+  
+  #dc = dc %>% mutate(outcomehere = !!rlang::sym(paste0(outcome, '_trait')))
+  #dc = dc %>% mutate(x = !!rlang::sym(paste0(x_var, '_trait')))
+  
+  p = ggplot(dc_imeans, aes(x=smu_intention_trait, y=happy_trait, group=factor(PID)), legend=FALSE) +
+    geom_point(colour="wheat1") +
+    geom_smooth(aes(group=1), method=lm, se=T, fullrange=FALSE, lty=1, 
+                linewidth=1.2, color="coral4") +
+    labs(
+      x = x_var_name,
+      y = str_to_sentence(outcome),
+      title = title_text_p1,
+      subtitle = subtitle_text_p1
+    ) +
+    #scale_x_continuous(breaks = 1:5, limits = c(1, 5)) +
+    theme_classic() +
+    theme(
+      plot.title=element_text(size=13, hjust=0,face='bold'),
+      plot.subtitle = element_text(size = 12, margin = margin(t = 2)), 
+      axis.title=element_text(size=11),
+      axis.text=element_text(size=11)
+    ) 
+  
+
+  #p
+  ggsave(save_p1, bg='white',plot = p, width = 6, height = 4, dpi = 300, units = "in")
+  print(paste0(save_p1, ' done!'))
+}
+
+plot_p3 = function(dc, outcome, subgroup){
+  if (subgroup=='all'){
+    title_text_p1 =  paste0("Predicted Within-Person Association: \n", str_to_sentence(outcome), ' ~ SMU intentionality')
+    subtitle_text_p1 = ""
+    save_p1 = paste0("p3_", outcome,"_all_predicted.png")
+    
+  } else {
+    
+    list1 <- c('motivation_coping_entertain', 'motivation_information_productivity',
+               'motivation_connection_expression', 'motivation_habitual_passing',
+               'motivation_trigger_driven', 'motivation_not_clear')
+    list2 <- c('entertainment, relaxation, coping', 'information seeking，productivity',
+               'social connection & expression', 'habitual use & passing time',
+               'trigger driven use', 'activity or context only')
+    my_dict <- setNames(list2, list1)
+    motive = my_dict[[subgroup]]
+    
+    title_text_p1 =  paste0("Predicted Within-Person Association: \n", str_to_sentence(outcome), ' ~ SMU intentionality')
+    subtitle_text_p1 = paste0("Motivation subgroup: ", motive)
+    save_p1 = paste0("p3_", outcome,"_", subgroup, "_predicted.png")
+    
+  }
+  
+  p = ggplot(dc, aes(x=smu_intention_state, y=pred_m, group=factor(PID), colour="wheat1"), 
+           legend=FALSE) +
+    geom_smooth(method=lm, se=FALSE, fullrange=FALSE, lty=1, 
+                linewidth=.4, color="wheat1") +
+    geom_smooth(aes(group=1), method=lm, se=T, fullrange=FALSE, lty=1, 
+                linewidth=1.2, color="coral4") +
+    labs(
+      x = "SMU Intentionality State",
+      y = str_to_sentence(outcome),
+      title = title_text_p1,
+      subtitle = subtitle_text_p1
+    ) +
+    theme_classic() +
+    theme(
+      plot.title=element_text(size=13, hjust=0,face='bold'),
+      plot.subtitle = element_text(size = 12, margin = margin(t = 2)), 
+      axis.title=element_text(size=11),
+      axis.text=element_text(size=11)
+      ) 
+  
+  #p
+  ggsave(save_p1, bg='white',plot = p, width = 6, height = 4, dpi = 300, units = "in")
+  print(paste0(save_p1, ' done!'))
+}
+
+plot_p1 = function(dc, subgroup='all'){
+  
+  if (subgroup=='all'){
+    title_text_p1 =  "<span style='font-size:14pt; font-weight:bold;'>Social media use intentionality. </span>"
+    subtitle_text_p1 = "Think back to when you opened [the mosted used social media platform] in the past hour.\nHow aware were you, at that moment, of your reasons for opening it?"
+    save_p1 = "p1_smu_intention_all.png"
+    
+  } else {
+    
+    list1 <- c('motivation_coping_entertain', 'motivation_information_productivity',
+               'motivation_connection_expression', 'motivation_habitual_passing',
+               'motivation_trigger_driven', 'motivation_not_clear')
+    list2 <- c('entertainment, relaxation, coping', 'information seeking，productivity',
+               'social connection & expression', 'habitual use & passing time',
+               'trigger driven use', 'activity or context only')
+    
+    # Named vector
+    my_dict <- setNames(list2, list1)
+    
+    motive = my_dict[[subgroup]]
+    
+    title_text_p1 = paste0(
+      "<span style='font-size:14pt; font-weight:bold;'>Social media use intentionality. </span>",
+      "<span style='font-size:11pt; font-weight:normal;'>Motivation subgroup: ", motive, "</span>"
+    )
+    subtitle_text_p1 = "Think back to when you opened [the mosted used social media platform] in the past hour.\nHow aware were you, at that moment, of your reasons for opening it?"
+    save_p1 = paste0("p1_smu_intention_", motive,".png")
+    dc = dc %>% filter(!!rlang::sym(subgroup)==1)
+    
+  }
+  
+  
+  dc$smu_intention_f <- factor(
+    dc$smu_intention, levels = 1:5,
+    labels = c(
+      "Not at all\naware",
+      "Slightly\naware",
+      "Moderately\naware",
+      "Very\naware",
+      "Extremely\naware"
+    )
+  )
+  
+  p <- ggplot(dc %>% filter(!is.na(smu_intention)), aes(x = smu_intention_f)) +
+    geom_bar(
+      aes(fill = smu_intention_f),
+      color = "white", linewidth = 0.4
+    ) +
+    geom_text(
+      stat = "count",
+      aes(label = after_stat(paste0("N=", count, ", ", scales::percent(count / sum(count), accuracy = 0.1)))),
+      vjust = -0.3, size = 3.2, #fontface = "bold"
+    ) +
+    scale_fill_manual(
+      values = c("coral", "lightskyblue1","lightskyblue2", "lightskyblue3", "lightskyblue4"),
+      guide = "none"
+    ) +
+    #scale_y_continuous(limits = c(0, 1380)) +
+    labs(
+      x = "", #SMU intentionality
+      y = "Count",
+      title = title_text_p1,
+      subtitle = subtitle_text_p1
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title = element_markdown(hjust=0),
+      plot.subtitle = element_text(face = "italic", size = 8, color ='grey35', margin = margin(t = 1)),
+      axis.text.x = element_text(angle = 0, size=11, hjust = 0.5, vjust=2, margin = margin(t = 0)),
+      axis.title.x = element_text(margin = margin(t = 6), size=10,face = "bold"),
+      axis.title.y = element_text(margin = margin(t = 0), size=10,), #face = "normal"
+      axis.ticks.length.x = unit(0.01, "cm"),
+      panel.grid.major.x = element_line(linewidth = 0.1, colour = "grey80"),
+      panel.grid.minor = element_blank()
+    ) +
+    coord_cartesian(clip = "off")
+  
+  #p
+  ggsave(save_p1, bg='white',plot = p, width = 7, height = 4, dpi = 300, units = "in")
+  print(paste0(subgroup, ' done!'))
+}
+
+
+plot_p1(dc, subgroup='all')
+for (c in c('motivation_coping_entertain', 'motivation_information_productivity',
+            'motivation_connection_expression', 'motivation_habitual_passing',
+            'motivation_trigger_driven', 'motivation_not_clear')){
+  plot_p1(dc, subgroup=c)
+}
+
+get_regression_lm_res = function(model, outcome, subgroup, model_type){
+  rr = data.frame(cbind(summary(model)$coefficients, confint(model, level = 0.95)))
+  rr = rr %>% mutate(rsquare = summary(model)$r.squared,
+                     rsquare_adj = summary(model)$adj.r.squared,
+                     outcome = outcome,
+                     subgroup = subgroup,
+                     model_type = model_type)
+  #rr = cbind(rr, data.frame(model_parameters(model, standardize = "refit", ci = 0.95)))
+  rownames(rr) <- NULL
+  return(rr)
+  
+}
+
+get_regression_lmer_res = function(model, outcome, subgroup, model_type){
+  ## recode results
+  lm_df = as.data.frame(summary(model)$coefficients)
+  lm_df$var = row.names(lm_df)
+  lm_df$personday_var = as.data.frame(VarCorr(model))['vcov'][1,]
+  lm_df$person_var = as.data.frame(VarCorr(model))['vcov'][2,]
+  lm_df$within_var = as.data.frame(VarCorr(model))['vcov'][3,]
+  lm_df$personday_var_std = as.data.frame(VarCorr(model))['sdcor'][1,]
+  lm_df$person_var_std = as.data.frame(VarCorr(model))['sdcor'][2,]
+  lm_df$within_var_std = as.data.frame(VarCorr(model))['sdcor'][3,]
+  lm_df$n_all = summary(model)$devcomp$dims['N'][1]
+  lm_df$n_personday = summary(model)$ngrps[1]
+  lm_df$n_person = summary(model)$ngrps[2]
+
+  ci <- confint(model, method = "Wald")
+  ci_clean <- ci[!grepl("^\\.", rownames(ci)), , drop = FALSE]
+  ci_clean_df <- as.data.frame(ci_clean)
+  lm_df = cbind(lm_df, ci_clean_df)
+  
+  lm_df$is_singular = isSingular(model)
+  ## calculate vpc: variance partitioning coefficient
+  lm_df$vpc_personday = as.data.frame(VarCorr(model))['vcov'][1,] / (as.data.frame(VarCorr(model))['vcov'][1,]+as.data.frame(VarCorr(model))['vcov'][2,]+as.data.frame(VarCorr(model))['vcov'][3,])
+  lm_df$vpc_person = as.data.frame(VarCorr(model))['vcov'][2,] / (as.data.frame(VarCorr(model))['vcov'][1,]+as.data.frame(VarCorr(model))['vcov'][2,]+as.data.frame(VarCorr(model))['vcov'][3,])
+  lm_df$vpc_within = as.data.frame(VarCorr(model))['vcov'][3,] / (as.data.frame(VarCorr(model))['vcov'][1,]+as.data.frame(VarCorr(model))['vcov'][2,]+as.data.frame(VarCorr(model))['vcov'][3,])
+  
+  ## note the type
+  if (isSingular(model)){
+    lm_df = lm_df %>% mutate(
+      icc_adj = NA_real_,
+      icc_unadj = NA_real_,
+      conditional_rsquare = NA_real_,
+      marginal_rsquare = NA_real_,
+      outcome = outcome,
+      subgroup = subgroup,
+      model_type = model_type)
+  } else {
+    lm_df = lm_df %>% mutate(
+      icc_adj = performance::icc(model)$ICC_adjusted,
+      icc_unadj = performance::icc(model)$ICC_unadjusted,
+      conditional_rsquare = as.numeric(r2(model)$R2_conditional),
+      marginal_rsquare = as.numeric(r2(model)$R2_marginal),
+      outcome = outcome,
+      subgroup = subgroup,
+      model_type = model_type)
+  }
+  
+  
+  rownames(lm_df) <- NULL
+  return(lm_df)
+}
+
+pre_organize_data = function(dc, subgroup='all'){
+  if (subgroup != 'all'){
+    dc = dc %>% filter(!!rlang::sym(subgroup)==1)
+  }
+  
+  scale_max <- 100
+  dc <- dc %>%
+    mutate(
+      angry_r = scale_max - angry,
+      lonely_r = scale_max - lonely,
+      distressed_r = scale_max - distressed
+    ) %>%
+    rowwise() %>%
+    mutate(
+      swb = mean(c(happy, angry_r, inspired, lonely_r, distressed_r, life_satisfied), na.rm = TRUE)
+    ) %>%
+    ungroup()
+  
+  #calculating intraindividual means
+  dc_imeans <- dc %>% 
+    group_by(PID) %>%
+    summarize(smu_intention_trait = mean(smu_intention, na.rm=TRUE),
+              smu_motivation_trait = mean(smu_motivation, na.rm=TRUE),
+              smu_experience_happy_trait = mean(smu_experience_happy, na.rm=TRUE),
+              smu_experience_meaningful_trait = mean(smu_experience_meaningful, na.rm=TRUE),
+              smu_experience_effortful_trait = mean(smu_experience_effortful, na.rm=TRUE),
+              happy_trait = mean(happy, na.rm=TRUE),
+              angry_trait = mean(angry, na.rm=TRUE),
+              angry_r_trait = mean(angry, na.rm=TRUE),
+              inspired_trait = mean(inspired, na.rm=TRUE),
+              lonely_trait = mean(lonely, na.rm=TRUE),
+              lonely_r_trait = mean(lonely, na.rm=TRUE),
+              distressed_trait = mean(distressed, na.rm=TRUE),
+              distressed_r_trait = mean(distressed, na.rm=TRUE),
+              life_satisfied_trait = mean(life_satisfied, na.rm=TRUE),
+              swb_trait = mean(swb, na.rm=TRUE),
+              
+    )
+  head(dc_imeans)
+  
+  #make centered versions of the person-level scores
+  dc_persons = dc %>% select(PID, Age, Sex, baseline_mindset_agency, baseline_mindset_valence,
+                             baseline_psmu,
+                             baseline_network_size,
+                             baseline_anxiety_binary,
+                             baseline_depression_binary,
+                             baseline_fomo,
+                             baseline_online_vigilance,
+                             baseline_automaticity,
+                             baseline_authenticity,
+                             baseline_smu_flourish,baseline_smu_flourish_inspiration,
+                             baseline_smu_flourish_enjoyment,
+                             baseline_nfc,
+                             total_time) %>% distinct()
+  dc_persons <- dc_persons %>%
+    left_join(dc_imeans, by="PID")
+  z <- function(x) as.numeric(scale(x))
+  dc_persons <- dc_persons %>%
+    mutate(smu_intention_trait_c = scale(smu_intention_trait, center=TRUE, scale=FALSE),
+           smu_motivation_trait_c = scale(smu_motivation_trait, center=TRUE, scale=FALSE),
+           
+           baseline_mindset_agency_c = scale(baseline_mindset_agency, center=TRUE, scale=FALSE),
+           baseline_mindset_valence_c = scale(baseline_mindset_valence, center=TRUE, scale=FALSE),
+           
+           baseline_psmu_c = scale(baseline_psmu, center=TRUE, scale=FALSE),
+           baseline_network_size_c = scale(baseline_network_size, center=TRUE, scale=FALSE),
+           baseline_fomo_c = scale(baseline_fomo, center=TRUE, scale=FALSE),
+           baseline_online_vigilance_c = scale(baseline_online_vigilance, center=TRUE, scale=FALSE),
+           baseline_automaticity_c = scale(baseline_automaticity, center=TRUE, scale=FALSE),
+           baseline_authenticity_c = scale(baseline_authenticity, center=TRUE, scale=FALSE),
+           baseline_smu_flourish_c = scale(baseline_smu_flourish, center=TRUE, scale=FALSE),
+           baseline_nfc_c = scale(baseline_nfc, center=TRUE, scale=FALSE),
+           total_time_c = scale(total_time, center=TRUE, scale=FALSE),
+           
+           smu_experience_happy_trait_c = scale(smu_experience_happy_trait,center=TRUE, scale=FALSE),
+           smu_experience_meaningful_trait_c = scale(smu_experience_meaningful_trait,center=TRUE, scale=FALSE),
+           smu_experience_effortful_trait_c = scale(smu_experience_effortful_trait,center=TRUE, scale=FALSE),
+    ) %>% mutate(
+           smu_intention_trait_z = z(smu_intention_trait),
+           smu_motivation_trait_z = z(smu_motivation_trait),
+           
+           smu_experience_happy_trait_z = z(smu_experience_happy_trait),
+           smu_experience_meaningful_trait_z = z(smu_experience_meaningful_trait),
+           smu_experience_effortful_trait_z = z(smu_experience_effortful_trait),
+
+           Age_z = z(Age), 
+           baseline_mindset_agency_z = z(baseline_mindset_agency),
+           baseline_mindset_valence_z = z(baseline_mindset_valence),
+           baseline_nfc_z = z(baseline_nfc),
+           baseline_psmu_z = z(baseline_psmu),
+           baseline_network_size_z = z(baseline_network_size),
+           total_time_z = z(total_time),
+           
+           happy_trait_z = z(happy_trait),
+           inspired_trait_z = z(inspired_trait),
+           life_satisfied_trait_z = z(life_satisfied_trait),
+           angry_r_trait_z = z(angry_r_trait),
+           lonely_r_trait_z = z(lonely_r_trait),
+           distressed_r_trait_z = z(distressed_r_trait),
+           swb_trait_z = z(swb_trait),
+           angry_trait_z = z(angry_trait),
+           lonely_trait_z = z(lonely_trait),
+           distressed_trait_z = z(distressed_trait),
+           
+    )
+  head(dc_persons)
+  
+  
+  #merging person-level data into daily data
+  dc <- dc %>%
+    left_join(dc_persons %>% select(PID, 
+                                    
+                                    smu_intention_trait,
+                                    smu_intention_trait_z,
+                                    smu_motivation_trait,
+                                    smu_motivation_trait_z,
+                                    
+                                    smu_experience_happy_trait,
+                                    smu_experience_meaningful_trait,
+                                    smu_experience_effortful_trait,
+                                    smu_experience_happy_trait_z,
+                                    smu_experience_meaningful_trait_z,
+                                    smu_experience_effortful_trait_z,
+                                    
+                                    happy_trait,
+                                    angry_trait,
+                                    angry_r_trait,
+                                    inspired_trait,
+                                    lonely_trait,
+                                    lonely_r_trait,
+                                    distressed_trait,
+                                    distressed_r_trait,
+                                    life_satisfied_trait,
+                                    swb_trait,
+                                    happy_trait_z,
+                                    angry_trait_z,
+                                    angry_r_trait_z,
+                                    inspired_trait_z,
+                                    lonely_trait_z,
+                                    lonely_r_trait_z,
+                                    distressed_trait_z,
+                                    distressed_r_trait_z,
+                                    life_satisfied_trait_z,
+                                    swb_trait_z,
+                                    
+                                    smu_intention_trait_c,
+                                    smu_motivation_trait_c,
+                                    baseline_mindset_agency_c,
+                                    baseline_mindset_valence_c,
+                                    baseline_psmu_c,
+                                    baseline_network_size_c,
+                                    baseline_fomo_c,
+                                    baseline_online_vigilance_c,
+                                    baseline_automaticity_c,
+                                    baseline_authenticity_c,
+                                    baseline_smu_flourish_c,
+                                    baseline_nfc_c,
+                                    total_time_c,
+                                    
+                                    smu_experience_happy_trait_c,
+                                    smu_experience_meaningful_trait_c,
+                                    smu_experience_effortful_trait_c)
+              , by="PID")
+  dim(dc)
+  head(dc)
+  
+  #calculating state variables
+  dc <- dc %>%
+    mutate(smu_intention_state = smu_intention - smu_intention_trait,
+           smu_motivation_state = smu_motivation - smu_motivation_trait,
+           smu_experience_happy_state = smu_experience_happy - smu_experience_happy_trait,
+           smu_experience_meaningful_state = smu_experience_meaningful - smu_experience_meaningful_trait,
+           smu_experience_effortful_state = smu_experience_effortful - smu_experience_effortful_trait,
+           total_time_state = total_time_personday - total_time)
+  dim(dc)
+  head(dc)
+  
+  dc = dc %>% mutate(smu_intention_trait_c_zg = z(smu_intention_trait_c),
+                     smu_intention_trait_zg = z(smu_intention_trait),
+                     smu_intention_state_zg = z(smu_intention_state) ,
+                     smu_motivation_trait_c_zg = z(smu_motivation_trait_c),
+                     smu_motivation_trait_zg = z(smu_motivation_trait),
+                     smu_motivation_state_zg = z(smu_motivation_state) ,
+                     total_time_state_zg = z(total_time_state),
+                     
+                     happy_zg = z(happy),
+                     inspired_zg = z(inspired),
+                     life_satisfied_zg = z(life_satisfied),
+                     angry_r_zg = z(angry_r),
+                     lonely_r_zg = z(lonely_r),
+                     distressed_r_zg = z(distressed_r),
+                     swb_zg = z(swb),
+                     angry_zg = z(angry),
+                     lonely_zg = z(lonely),
+                     distressed_zg = z(distressed),
+                     
+                     smu_experience_happy_zg = z(smu_experience_happy),
+                     smu_experience_happy_trait_c_zg = z(smu_experience_happy_trait_c),
+                     smu_experience_happy_trait_zg = z(smu_experience_happy_trait),
+                     smu_experience_happy_state_zg = z(smu_experience_happy_state),
+                     smu_experience_meaningful_zg = z(smu_experience_meaningful),
+                     smu_experience_meaningful_trait_c_zg = z(smu_experience_meaningful_trait_c),
+                     smu_experience_meaningful_trait_zg = z(smu_experience_meaningful_trait),
+                     smu_experience_meaningful_state_zg = z(smu_experience_meaningful_state),
+                     smu_experience_effortful_zg = z(smu_experience_effortful),
+                     smu_experience_effortful_trait_c_zg = z(smu_experience_effortful_trait_c),
+                     smu_experience_effortful_trait_zg = z(smu_experience_effortful_trait),
+                     smu_experience_effortful_state_zg = z(smu_experience_effortful_state),
+                     
+                     Age_zg = z(Age), 
+                     baseline_mindset_agency_c_zg = z(baseline_mindset_agency_c),
+                     baseline_mindset_agency_zg = z(baseline_mindset_agency),
+                     baseline_mindset_valence_c_zg = z(baseline_mindset_valence_c),
+                     baseline_mindset_valence_zg = z(baseline_mindset_valence),
+                     baseline_nfc_c_zg = z(baseline_nfc_c),
+                     baseline_nfc_zg = z(baseline_nfc),
+                     baseline_psmu_c_zg = z(baseline_psmu_c),                     
+                     baseline_psmu_zg = z(baseline_psmu),
+                     baseline_network_size_c_zg = z(baseline_network_size_c),
+                     baseline_network_size_zg = z(baseline_network_size),
+                     total_time_c_zg = z(total_time_c),
+                     total_time_zg = z(total_time))
+  return(list(dc, dc_persons, dc_imeans))
+}
+run_quick_check0 = function(dc, dc_persons, dc_imeans, subgroup='all', outcome='happy', plot_or_not=F){
+  
+  rra = data.frame()
+
+  ## 
+  # fit model
+  f1 <- as.formula(
+    paste0(
+      outcome, '_trait', '~1 +',
+      'baseline_mindset_agency + 
+      baseline_mindset_valence + 
+      Age + Sex + 
+      baseline_nfc + 
+      baseline_psmu + 
+      baseline_network_size+
+      total_time'))
+  model1_fit <- lm(formula = f1, data=dc_persons, na.action=na.exclude)
+  #summary(model1_fit)
+  rr1 = get_regression_lm_res(model1_fit, outcome = outcome, subgroup = subgroup, model_type = 'model1')
+  rra = rbind(rra, rr1)
+  
+  f1std <- as.formula(
+    paste0(
+      outcome, '_trait_z', '~1 +',
+      'baseline_mindset_agency_z + 
+      baseline_mindset_valence_z + 
+      Age_z + Sex + 
+      baseline_nfc_z + 
+      baseline_psmu_z + 
+      baseline_network_size_z+
+      total_time_z'))
+  model1std_fit <- lm(formula = f1std, data=dc_persons, na.action=na.exclude)
+  #summary(model1std_fit)
+  rr1std = get_regression_lm_res(model1std_fit, outcome = outcome, subgroup = subgroup, model_type = 'model1_std')
+  rra = rbind(rra, rr1std)
+  
+  f2 <- as.formula(
+    paste0(
+      outcome, '_trait', '~1 +',
+      'smu_intention_trait_c + smu_motivation_trait_c + ',
+      'baseline_mindset_agency_c + 
+      baseline_mindset_valence_c + 
+      Age + Sex + 
+      baseline_nfc_c + 
+      baseline_psmu_c + 
+      baseline_network_size_c +
+      total_time_c'))
+  model2_fit <- lm(formula = f2, data=dc_persons, na.action=na.exclude)
+  #summary(model2_fit)
+  rr2 = get_regression_lm_res(model2_fit, outcome = outcome, subgroup = subgroup, model_type = 'model2')
+  rra = rbind(rra, rr2)
+  
+  f2std <- as.formula(
+    paste0(
+      outcome, '_trait_z', '~1 +',
+      'smu_intention_trait_z + smu_motivation_trait_z + ',
+      'baseline_mindset_agency_z + 
+      baseline_mindset_valence_z + 
+      Age_z + Sex + 
+      baseline_nfc_z + 
+      baseline_psmu_z + 
+      baseline_network_size_z+
+      total_time_z'))
+  model2std_fit <- lm(formula = f2std, data=dc_persons, na.action=na.exclude)
+  #summary(model2_fit)
+  rr2std = get_regression_lm_res(model2std_fit, outcome = outcome, subgroup = subgroup, model_type = 'model2_std')
+  rra = rbind(rra, rr2std)
+  
+  
+  if (!outcome %in% c('smu_experience_happy',
+                     'smu_experience_meaningful',
+                     'smu_experience_effortful')){
+    f3 <- as.formula(
+      paste0(
+        outcome, '_trait', '~1 +',
+        'smu_intention_trait_c + smu_motivation_trait_c + ',
+        'smu_experience_happy_trait_c + smu_experience_meaningful_trait_c + smu_experience_effortful_trait_c+',
+        'baseline_mindset_agency_c + 
+      baseline_mindset_valence_c + 
+      Age + Sex + 
+      baseline_nfc_c + 
+      baseline_psmu_c + 
+      baseline_network_size_c +
+        total_time_c'))
+    model3_fit <- lm(formula = f3, data=dc_persons, na.action=na.exclude)
+    #summary(model3_fit)
+    rr3 = get_regression_lm_res(model3_fit, outcome = outcome, subgroup = subgroup, model_type = 'model3')
+    rra = rbind(rra, rr3)
+    
+    f3std <- as.formula(
+      paste0(
+        outcome, '_trait_z', '~1 +',
+        'smu_intention_trait_z + smu_motivation_trait_z + ',
+        'smu_experience_happy_trait_z + smu_experience_meaningful_trait_z + smu_experience_effortful_trait_z+',
+        'baseline_mindset_agency_z + 
+      baseline_mindset_valence_z + 
+      Age_z + Sex + 
+      baseline_nfc_z + 
+      baseline_psmu_z + 
+      baseline_network_size_z+
+        total_time_z'))
+    model3std_fit <- lm(formula = f3std, data=dc_persons, na.action=na.exclude)
+    #summary(model3_fit)
+    rr3std = get_regression_lm_res(model3std_fit, outcome = outcome, subgroup = subgroup, model_type = 'model3_std')
+    rra = rbind(rra, rr3std)
+  }
+  
+  rrb = data.frame()
+  f4 <- as.formula(
+    paste0(
+      outcome, '~1 +',
+      'smu_intention_trait_c + smu_intention_state +
+       smu_motivation_trait_c + smu_motivation_state +',
+      'baseline_mindset_agency_c + 
+      baseline_mindset_valence_c + 
+      Age + Sex + 
+      baseline_nfc_c + 
+      baseline_psmu_c + 
+      baseline_network_size_c +
+      total_time_c +
+      total_time_state +',
+      #'(1|PID/Day.of.Survey)',
+      "(1 + smu_intention_state | PID) + (1 | PID:Day.of.Survey)"))
+  model4_fit <- lmer(formula = f4, data=dc, na.action=na.exclude)
+  dc <- dc %>% mutate(pred_m = predict(model4_fit))
+  #summary(model4_fit)
+  rr4 = get_regression_lmer_res(model4_fit, outcome = outcome, subgroup = subgroup, model_type = 'model4')
+  rrb = rbind(rrb, rr4)
+  if (plot_or_not){
+    plot_p2(dc, outcome = outcome, subgroup = subgroup)
+  plot_p3(dc, outcome = outcome, subgroup = subgroup)
+  plot_p5(dc_imeans, x_var='smu_intention', x_var_name='SMU Intentionality', outcome = outcome, subgroup = subgroup)
+  plot_p5(dc_imeans, x_var='smu_motivation', x_var_name='SMU Motivation', outcome = outcome, subgroup = subgroup)
+  
+  }
+  
+  f4_std <- as.formula(
+    paste0(
+      outcome,"_zg", '~1 +',
+      'smu_intention_trait_c_zg + smu_intention_state_zg +
+       smu_motivation_trait_c_zg + smu_motivation_state_zg +',
+      'baseline_mindset_agency_c_zg + 
+      baseline_mindset_valence_c_zg + 
+      Age_zg + Sex + 
+      baseline_nfc_c_zg + 
+      baseline_psmu_c_zg + 
+      baseline_network_size_c_zg +
+      total_time_c_zg +
+      total_time_state_zg +',
+      #'(1|PID/Day.of.Survey)',
+      "(1 + smu_intention_state_zg | PID) + (1 | PID:Day.of.Survey)"))
+  model4std_fit <- lmer(formula = f4_std, data=dc, na.action=na.exclude)
+  #summary(model4std_fit)
+  rr4std = get_regression_lmer_res(model4std_fit, outcome = outcome, subgroup = subgroup, model_type = 'model4_std')
+  rrb = rbind(rrb, rr4std)
+  
+  if (!outcome %in% c('smu_experience_happy',
+                      'smu_experience_meaningful',
+                      'smu_experience_effortful')){
+    f5 <- as.formula(
+      paste0(
+        outcome, '~1 +',
+        'smu_intention_trait_c + smu_intention_state +
+         smu_motivation_trait_c + smu_motivation_state +',
+        'smu_experience_happy_trait_c + smu_experience_happy_state +
+         smu_experience_meaningful_trait_c + smu_experience_meaningful_state +
+         smu_experience_effortful_trait_c + smu_experience_effortful_state +',
+        'baseline_mindset_agency_c + 
+        baseline_mindset_valence_c + 
+        Age + Sex + 
+        baseline_nfc_c + 
+        baseline_psmu_c + 
+        baseline_network_size_c +
+        total_time_c + 
+        total_time_state +',
+        #'(1|PID/Day.of.Survey)',
+        "(1 + smu_intention_state | PID) + (1 | PID:Day.of.Survey)"))
+    model5_fit <- lmer(formula = f5, data=dc, na.action=na.exclude)
+    #summary(model5_fit)
+    rr5 = get_regression_lmer_res(model5_fit, outcome = outcome, subgroup = subgroup, model_type = 'model5')
+    rrb = rbind(rrb, rr5)
+    
+    f5_std <- as.formula(
+      paste0(
+        outcome,"_zg", '~1 +',
+        'smu_intention_trait_c_zg + smu_intention_state_zg +
+         smu_motivation_trait_c_zg + smu_motivation_state_zg +',
+        'smu_experience_happy_trait_c_zg + smu_experience_happy_state_zg +
+         smu_experience_meaningful_trait_c_zg + smu_experience_meaningful_state_zg +
+         smu_experience_effortful_trait_c_zg + smu_experience_effortful_state_zg +',
+        'baseline_mindset_agency_c_zg + 
+        baseline_mindset_valence_c_zg + 
+        Age_zg + Sex + 
+        baseline_nfc_c_zg + 
+        baseline_psmu_c_zg + 
+        baseline_network_size_c_zg +
+        total_time_c_zg +
+        total_time_state_zg +',
+       # '(1|PID/Day.of.Survey)',
+        "(1 + smu_intention_state_zg | PID) + (1 | PID:Day.of.Survey)"))
+    model5std_fit <- lmer(formula = f5_std, data=dc, na.action=na.exclude)
+    #summary(model5std_fit)
+    rr5std = get_regression_lmer_res(model5std_fit, outcome = outcome, subgroup = subgroup, model_type = 'model5_std')
+    rrb = rbind(rrb, rr5std)
+    
+  }
+
+  return(list(rra, rrb))
+}
+
+
+## do it for all
+res_between_all = data.frame()
+res_within_all = data.frame()
+subgroup = 'all'
+df = pre_organize_data(dc=read.csv('D:\\my research\\my ema1\\data_collection_tracking\\smu_for_analysis_withclass_baseline_endline_0907.csv'), 
+                       subgroup=subgroup)
+outcome_l = c('happy','swb', 'inspired', 'life_satisfied',
+              'angry_r', 'lonely_r', "distressed_r" ,                     
+              "smu_experience_happy","smu_experience_meaningful","smu_experience_effortful")
+for (outcome in outcome_l){
+
+  res = run_quick_check0(dc=df[[1]], dc_persons=df[[2]], dc_imeans=df[[3]], 
+                         subgroup=subgroup, outcome=outcome)
+
+  res_between_all <- bind_rows(res_between_all, res[[1]])
+  res_within_all <- bind_rows(res_within_all, res[[2]])
+  dim(res_within_all)
+  dim(res_between_all)
+  
+  print(paste0(outcome, ' done!'))
+}
+## no within person level time spent
+#write.csv(res_between_all, 'res_between_all.csv', row.names=F)
+#write.csv(res_within_all, 'res_within_all.csv', row.names=F)
+## with within person level time spent, random slope
+write.csv(res_between_all, 'res_between_all_sctimeall.csv', row.names=F)
+write.csv(res_within_all, 'res_within_all_sctimeall.csv', row.names=F)
+
+
+res_between_all = read.csv('res_between_all.csv')
+res_within_all = read.csv('res_within_all.csv')
+
+res_between_all = read.csv('res_between_all_sctimeall.csv')
+res_within_all = read.csv('res_within_all_sctimeall.csv')
+
+## do it for a subgroup
+subgroup_l = c('motivation_coping_entertain','motivation_information_productivity',
+               'motivation_connection_expression', 'motivation_habitual_passing',
+               'motivation_trigger_driven', 'motivation_not_clear')
+#subgroup='motivation_information_productivity'
+
+for (subgroup in subgroup_l){
+  print(paste0('#### starting ', subgroup))
+  df = pre_organize_data(dc=read.csv('D:\\my research\\my ema1\\data_collection_tracking\\smu_for_analysis_withclass_baseline_endline_0907.csv'),
+                         subgroup=subgroup)
+  outcome_l = c('happy','swb', 'inspired', 'life_satisfied',
+                'angry_r', 'lonely_r', "distressed_r" ,                     
+                "smu_experience_happy","smu_experience_meaningful","smu_experience_effortful")
+  
+  for (outcome in outcome_l){
+    
+    res = run_quick_check0(dc=df[[1]], dc_persons=df[[2]], dc_imeans=df[[3]], 
+                           subgroup=subgroup, outcome=outcome)
+    
+    res_between_all <- bind_rows(res_between_all, res[[1]])
+    res_within_all <- bind_rows(res_within_all, res[[2]])
+    print(dim(res_within_all))
+    print(paste0(outcome, ' done!'))
+    
+  }
+  
+  ## no within person level time spent
+  #write.csv(res_between_all, 'res_between_all.csv', row.names=F)
+  #write.csv(res_within_all, 'res_within_all.csv', row.names=F)
+  ## with within person level time spent
+  write.csv(res_between_all, 'res_between_all_sctimeall.csv', row.names=F)
+  write.csv(res_within_all, 'res_within_all_sctimeall.csv', row.names=F)
+  print(paste0(subgroup, ' done!'))
+}
+
+
+
+
+################################################## try the subgroup interaction
+main_subgroups <- paste(subgroup_l, collapse = " + ")
+
+# interactions with within-person intention
+int_within <- paste(paste0("smu_intention_state_zg:", subgroup_l), collapse = " + ")
+
+# interactions with between-person intention
+int_between <- paste(paste0("smu_intention_trait_c_zg:", subgroup_l), collapse = " + ")
+
+f6_std <- as.formula(paste0(
+  outcome, "_zg ~ 1 + ",
+  # core predictors
+  "smu_intention_trait_c_zg + smu_intention_state_zg + ",
+  "smu_motivation_trait_c_zg + smu_motivation_state_zg + ",
+  "baseline_mindset_agency_c_zg + baseline_mindset_valence_c_zg + ",
+  "Age_zg + Sex + baseline_nfc_c_zg + baseline_psmu_c_zg + baseline_network_size_c_zg + ",
+  "total_time_c_zg + total_time_state_zg + ",
+  # subgroup main effects
+  #main_subgroups, " + ",
+  # interactions with intention (within & between)
+  #int_within, " + ",
+  #int_between, " + ",
+  #'smu_intention_state_zg:motivation_habitual_passing + smu_intention_trait_c_zg:motivation_habitual_passing +',
+  # random effects (option A: add a random slope for the within-person intention)
+  "(1 + smu_intention_state_zg | PID) + (1 | PID:Day.of.Survey)"
+  # If you prefer your original nesting without the slope: "(1 | PID/Day.of.Survey)"
+))
+
+model6std_fit <- lmer(formula = f6_std, data=dc, na.action=na.exclude)
+summary(model6std_fit)
+rr6std = get_regression_lmer_res(model6std_fit, outcome = outcome, subgroup = subgroup, model_type = 'model6_std')
+write.csv(rr6std, 'res_try_interaction.csv', row.names=F)
+
