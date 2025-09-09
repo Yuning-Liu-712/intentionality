@@ -824,6 +824,11 @@ for (subgroup in subgroup_l){
 
 
 ################################################## try the subgroup interaction
+df = pre_organize_data(dc=read.csv('D:\\my research\\my ema1\\data_collection_tracking\\smu_for_analysis_withclass_baseline_endline_0907.csv'), 
+                       subgroup=subgroup)
+subgroup = 'all'
+dc = df[[1]]
+outcome = 'happy'
 main_subgroups <- paste(subgroup_l, collapse = " + ")
 
 # interactions with within-person intention
@@ -837,8 +842,8 @@ f6_std <- as.formula(paste0(
   # core predictors
   "smu_intention_trait_c_zg + smu_intention_state_zg + ",
   "smu_motivation_trait_c_zg + smu_motivation_state_zg + ",
-  "baseline_mindset_agency_c_zg + baseline_mindset_valence_c_zg + ",
-  "Age_zg + Sex + baseline_nfc_c_zg + baseline_psmu_c_zg + baseline_network_size_c_zg + ",
+  #"baseline_mindset_agency_c_zg + baseline_mindset_valence_c_zg + baseline_nfc_c_zg + baseline_psmu_c_zg + baseline_network_size_c_zg +  ",
+  "Age_zg + Sex + ",
   "total_time_c_zg + total_time_state_zg + ",
   # subgroup main effects
   #main_subgroups, " + ",
@@ -856,3 +861,97 @@ summary(model6std_fit)
 rr6std = get_regression_lmer_res(model6std_fit, outcome = outcome, subgroup = subgroup, model_type = 'model6_std')
 write.csv(rr6std, 'res_try_interaction.csv', row.names=F)
 
+
+## do the new that amit asked for
+df = pre_organize_data(dc=read.csv('D:\\my research\\my ema1\\data_collection_tracking\\smu_for_analysis_withclass_baseline_endline_0907.csv'), 
+                       subgroup=subgroup)
+subgroup = 'all'
+dc = df[[1]]
+outcome_l = c('happy','swb', 'inspired', 'life_satisfied',
+              'angry_r', 'lonely_r', "distressed_r" ,                     
+              "smu_experience_happy","smu_experience_meaningful","smu_experience_effortful")
+res1 = data.frame()
+for (outcome in outcome_l){
+  f6_std <- as.formula(paste0(
+    outcome, "_zg ~ 1 + ",
+    # core predictors
+    "smu_intention_trait_c_zg + smu_intention_state_zg + ",
+    "smu_motivation_trait_c_zg + smu_motivation_state_zg + ",
+    #"baseline_mindset_agency_c_zg + baseline_mindset_valence_c_zg + baseline_nfc_c_zg + baseline_psmu_c_zg + baseline_network_size_c_zg +  ",
+    "Age_zg + Sex + ",
+    "total_time_c_zg + total_time_state_zg + ",
+    "(1 + smu_intention_state_zg | PID) + (1 | PID:Day.of.Survey)"
+  ))
+  model6std_fit <- lmer(formula = f6_std, data=dc, na.action=na.exclude)
+  #summary(model6std_fit)
+  rr6std = get_regression_lmer_res(model6std_fit, outcome = outcome, subgroup = subgroup, model_type = 'core_1')
+  res1 = rbind(res1, rr6std)
+  print(paste0(outcome, ' done!'))
+}
+
+
+list_rename2 = c('(Intercept)',
+                'SMU_Intentionality_between',
+                'SMU_Intentionality_within',
+                'SMU_Motivation_between',
+                'SMU_Motivation_within',
+                
+                'SMU_experience_happy_between',
+                'SMU_experience_happy_within',
+                'Smu_experience_meaningful_between',
+                'Smu_experience_meaningful_within',
+                'Smu_experience_effortful_between',
+                'Smu_experience_effortful_within',
+                
+                'SMU_Agency_between',
+                'SMU_valence_between',
+                'Age',
+                'Sex_Male',
+                'Sex_Others',
+                'NeedForCognition_between',
+                'ProblematicSMU_between',
+                'NetworkSize_between',
+                'Screentime_between',
+                'Screentime_within')
+list_raname1 = c(
+  '(Intercept)',
+  'smu_intention_trait_c_zg',
+  'smu_intention_state_zg',
+  'smu_motivation_trait_c_zg',
+  'smu_motivation_state_zg',
+  
+  'smu_experience_happy_trait_c_zg',
+  'smu_experience_happy_state_zg',
+  'smu_experience_meaningful_trait_c_zg',
+  'smu_experience_meaningful_state_zg',
+  'smu_experience_effortful_trait_c_zg',
+  'smu_experience_effortful_state_zg',
+  
+  'baseline_mindset_agency_c_zg',
+  'baseline_mindset_valence_c_zg',
+  'Age_zg',
+  'SexMale',
+  'SexPrefer not to say',
+  'baseline_nfc_c_zg',
+  'baseline_psmu_c_zg',
+  'baseline_network_size_c_zg',
+  'total_time_c_zg',
+  'total_time_state_zg'
+)
+res1[['var_output']] <- recode(res1[['var']], !!!setNames(list_rename2, list_raname1))
+res1 <- res1 %>%
+  mutate(
+    stars = case_when(
+      `Pr(>|t|)` < 0.001 ~ "***",
+      `Pr(>|t|)` < 0.01  ~ "**",
+      `Pr(>|t|)` < 0.05  ~ "*",
+      TRUE ~ ""
+    ),
+    formatted = paste0(
+      formatC(Estimate, format = "f", digits = 2), 
+      " (", formatC(`Std. Error`, format = "f", digits = 2), ")", 
+      stars
+    )
+  )
+dim(res1)
+write.csv(res1, 'core_model_1.csv', row.names = F)
