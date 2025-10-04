@@ -1,0 +1,1791 @@
+from pathlib import Path
+import zipfile
+import pandas as pd
+import numpy as np
+import os
+import shutil
+import re
+from openai import OpenAI
+import textwrap
+import json
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta, timezone
+from scipy import stats
+
+
+
+res_path = Path("D:\\my research\\my ema1\\data_collection_tracking\\res\\res_0907")
+folder_path = Path('D:\\my research\\my ema1\\data_collection_tracking')
+
+dc = pd.read_csv(folder_path / 'smu_for_analysis_withclass_baseline_endline_0912.csv')
+da = pd.read_csv(folder_path / 'final_data_ema_0912.csv')
+
+ddp_l = [x for x in dc.columns if ('_burst' in x) & ('ddp_num_' in x)]
+matchtime_l = [x for x in dt.columns if 'matchtime' in x]
+cols = matchtime_l
+
+## check logistics
+ddp_detail_name = 'ddp_view_url_60_0926.csv'
+save_url_all = pd.read_csv(folder_path / ddp_detail_name)
+save_url_all.shape
+save_url_all[['PID', 'Start Date']].drop_duplicates().shape
+save_url_all['PID'].nunique()
+save_url_all.loc[save_url_all.activity=='view',:].shape # --> 55165
+save_url_all.loc[save_url_all.activity=='view','PID'].nunique() # --> 150
+save_url_all.loc[save_url_all.activity=='view',['PID', 'Start Date']].drop_duplicates().shape # --> 1326
+
+
+ddp_detail_name = 'ddp_view_url_0924.csv'
+save_url_all = pd.read_csv(folder_path / ddp_detail_name)
+save_url_all.shape
+save_url_all[['PID', 'Start Date']].drop_duplicates().shape
+save_url_all['PID'].nunique()
+save_url_all.loc[save_url_all.activity=='view',:].shape # --> 101702
+save_url_all.loc[save_url_all.activity=='view','PID'].nunique() # --> 160
+save_url_all.loc[save_url_all.activity=='view',['PID', 'Start Date']].drop_duplicates().shape # --> 1858
+
+ddp_processed_name = 'ddp_processed_0924.csv'
+resaa = pd.read_csv(folder_path / ddp_processed_name)
+resaa.shape
+resaa[['PID', 'Start Date']].drop_duplicates().shape
+resaa['PID'].nunique()
+ddp_l = [x for x in resaa.columns if ('_burst' in x) & ('ddp_num_' in x)]
+resaa['ddp_num_all_burst'] = resaa[ddp_l].sum(axis=1)
+resaa.loc[resaa['ddp_num_all_burst']!=0,:].shape #--> 1918
+resaa['ddp_num_all_burst'].sum()# --> 116020
+resaa.loc[resaa['ddp_num_all_burst']!=0,'PID'].nunique() #--> 161
+
+ddp_processed_name = 'ddp_processed_60_0926.csv'
+resaa = pd.read_csv(folder_path / ddp_processed_name)
+resaa.shape
+resaa[['PID', 'Start Date']].drop_duplicates().shape
+resaa['PID'].nunique()
+ddp_l = [x for x in resaa.columns if ('_burst' in x) & ('ddp_num_' in x)]
+resaa['ddp_num_all_burst'] = resaa[ddp_l].sum(axis=1)
+resaa.loc[resaa['ddp_num_all_burst']!=0,:].shape #--> 1399
+resaa['ddp_num_all_burst'].sum()# --> 62607
+resaa.loc[resaa['ddp_num_all_burst']!=0,'PID'].nunique() #--> 152
+
+
+## the analysis on Sep 27 -- one hour version
+resaa = pd.read_csv(folder_path / 'ddp_processed_60_0926.csv')
+resaa = pd.read_csv(folder_path / 'ddp_processed_0924.csv')
+
+drop_da_col = [y for y in [x for x in da.columns if x in resaa.columns] if y not in ['PID', 'Start Date']]
+drop_dc_col = [y for y in [x for x in dc.columns if x in resaa.columns] if y not in ['PID', 'Start Date']]
+da = da.drop(columns=drop_da_col)
+dc = dc.drop(columns=drop_dc_col)
+da = pd.merge(da, resaa, on=['Start Date', 'PID'], how='left')
+dc = pd.merge(dc, resaa, on=['Start Date', 'PID'], how='left')
+ddp_l = [x for x in dc.columns if ('_burst' in x) & ('ddp_num_' in x)]
+
+dc.loc[dc['platform_use']=='TikTok',:].shape # --> 1234
+dc.loc[dc['platform_use']=='TikTok','PID'].nunique() # --> 180
+
+dt = dc.loc[(dc[ddp_l].notna().any(axis=1)) & (dc['platform_use']=='TikTok'),:].reset_index(drop=True)
+assert dt.shape[0] == dt[['Start Date', 'PID']].drop_duplicates().shape[0]
+dt.shape[0] # --> 1000
+dt['PID'].nunique() # -->143
+
+## 60 minut version
+dt['ddp_num_all_burst'] = dt[ddp_l].sum(axis=1)
+dt['ddp_num_all_burst'].sum() # --> 43493
+dt['ddp_num_view_burst'].sum() # --> 38918
+dt.to_csv(res_path / 'ema_tiktok_only_60min_1003.csv', index=False)
+
+
+## 120 minut version
+dt['ddp_num_all_burst'] = dt[ddp_l].sum(axis=1)
+dt['ddp_num_all_burst'].sum() # --> 43493
+dt['ddp_num_view_burst'].sum() # --> 38918
+dt.to_csv(res_path / 'ema_tiktok_only_120min_1003.csv', index=False)
+
+
+ # check the row distribution
+burst_l = [x for x in dc.columns if ('_burst' in x) & ('ddp_num_' in x)] ## within level number of burst by activity
+person_l = [x for x in dc.columns if ('_person' in x) & ('ddp_num_' in x)] ## all numbers of each activity we observed in the entir ddp
+for x in person_l:
+    newx = 'ddp_numperhour_' + x.split('ddp_num_')[1]
+    dt[newx] = dt[x] / dt['ddp_active_days'] / 24
+persondensity_l = [x for x in dt.columns if ('_person' in x) & ('ddp_numperhour_' in x)] ## all numbers of each activity we observed in the entir ddp
+catt_l = ['fav', 'fol', 'like', 'login', 'search', 'share', 'view', 'comment', 'post']
+for x in catt_l:
+    newx = f'ddp_ratiotoprson_{x}_burst'
+    dt[newx] = dt[f'ddp_num_{x}_burst'] / dt[f'ddp_numperhour_{x}_person']
+burstrela_l = [x for x in dt.columns if ('_burst' in x) & ('ddp_ratiotoprson_' in x)] ## all numbers of each activity we observed in the entir ddp
+
+# all
+dt['ddp_num_all_burst'] = dt[ddp_l].sum(axis=1)
+dt['ddp_num_all_person'] = dt[person_l].sum(axis=1)
+dt['ddp_numperhour_all_person'] = dt['ddp_num_all_person'] / dt['ddp_active_days'] / 24
+dt['ddp_ratiotoprson_all_burst'] = dt[f'ddp_num_all_burst'] / dt[f'ddp_numperhour_all_person']
+burst_l.append(f'ddp_num_all_burst')
+burstrela_l.append('ddp_ratiotoprson_all_burst')
+
+for col in burst_l:
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(dt[col].dropna(), bins=30, edgecolor='black')
+    ax.set_title(f"Histogram of {col}")
+    #ax.set_xlabel(col)
+    ax.set_ylabel("Frequency")
+    # save the figure
+    fig.savefig(res_path / f"ddp_hist_{col}.png", dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+for col in burstrela_l:
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(dt[col].dropna(), bins=30, edgecolor='black')
+    ax.set_title(f"Histogram of {col}")
+    #ax.set_xlabel(col)
+    ax.set_ylabel("Frequency")
+    # save the figure
+    fig.savefig(res_path / f"ddp_hist_{col}.png", dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+## the analysis on sep 27, 2 hour version
+resaa = pd.read_csv(folder_path / 'ddp_processed_0924.csv')
+drop_da_col = [y for y in [x for x in da.columns if x in resaa.columns] if y not in ['PID', 'Start Date']]
+drop_dc_col = [y for y in [x for x in dc.columns if x in resaa.columns] if y not in ['PID', 'Start Date']]
+da = da.drop(columns=drop_da_col)
+dc = dc.drop(columns=drop_dc_col)
+da = pd.merge(da, resaa, on=['Start Date', 'PID'], how='left')
+dc = pd.merge(dc, resaa, on=['Start Date', 'PID'], how='left')
+ddp_l = [x for x in dc.columns if ('_burst' in x) & ('ddp_num_' in x)]
+dt = dc.loc[(dc[ddp_l].notna().any(axis=1)) & (dc['platform_use']=='TikTok'),:].reset_index(drop=True)
+
+ # check the row distribution
+burst_l = [x for x in dc.columns if ('_burst' in x) & ('ddp_num_' in x)] ## within level number of burst by activity
+person_l = [x for x in dc.columns if ('_person' in x) & ('ddp_num_' in x)] ## all numbers of each activity we observed in the entir ddp
+for x in person_l:
+    newx = 'ddp_numperhour_' + x.split('ddp_num_')[1]
+    dt[newx] = dt[x] / dt['ddp_active_days'] / 24
+persondensity_l = [x for x in dt.columns if ('_person' in x) & ('ddp_numperhour_' in x)] ## all numbers of each activity we observed in the entir ddp
+catt_l = ['fav', 'fol', 'like', 'login', 'search', 'share', 'view', 'comment', 'post']
+for x in catt_l:
+    newx = f'ddp_ratiotoprson_{x}_burst'
+    dt[newx] = dt[f'ddp_num_{x}_burst'] / dt[f'ddp_numperhour_{x}_person']
+burstrela_l = [x for x in dt.columns if ('_burst' in x) & ('ddp_ratiotoprson_' in x)] ## all numbers of each activity we observed in the entir ddp
+
+ # all
+dt['ddp_num_all_burst'] = dt[ddp_l].sum(axis=1)
+dt['ddp_num_all_person'] = dt[person_l].sum(axis=1)
+dt['ddp_numperhour_all_person'] = dt['ddp_num_all_person'] / dt['ddp_active_days'] / 24
+dt['ddp_ratiotoprson_all_burst'] = dt[f'ddp_num_all_burst'] / dt[f'ddp_numperhour_all_person']
+burst_l.append(f'ddp_num_all_burst')
+burstrela_l.append('ddp_ratiotoprson_all_burst')
+
+for col in burst_l:
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(dt[col].dropna(), bins=30, edgecolor='black')
+    ax.set_title(f"Histogram of {col}")
+    #ax.set_xlabel(col)
+    ax.set_ylabel("Frequency")
+    # save the figure
+    fig.savefig(res_path / f"ddp2h_hist_{col}.png", dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+for col in burstrela_l:
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(dt[col].dropna(), bins=30, edgecolor='black')
+    ax.set_title(f"Histogram of {col}")
+    #ax.set_xlabel(col)
+    ax.set_ylabel("Frequency")
+    # save the figure
+    fig.savefig(res_path / f"ddp2h_hist_{col}.png", dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+## correlation
+def zscore(s):
+    s = pd.Series(s)
+    sd = s.std(ddof=1)
+    if pd.isna(sd) or sd == 0:
+        return (s - s.mean()) * 0.0  # all zeros if constant
+    return (s - s.mean()) / sd
+
+def between_within_correlations_custom(
+    df: pd.DataFrame,
+    pid_col: str,
+    x_col: str,                  # e.g., 'smu_intention'
+    y_col: str,                  # e.g., 'ddp_num_all_burst'
+    y_person_mean_col: str,      # e.g., 'num_per_active_day'  (num/ddp_active_days), constant per PID
+    #sum_intention_col: str,      # e.g., 'sum_intention'       (constant per PID)
+    min_points_within: int = 2
+):
+    """
+    Computes:
+      - Between-person correlation (mean(x) vs mean(y))
+      - Between-person correlation (y_person_mean_col vs sum_intention_col)
+      - Within-person correlation where:
+          x is person-mean centered from x_col
+          y is centered using *y_person_mean_col* (NOT person-mean of y_col)
+        Reports pooled Pearson and Fisher-z meta-analytic summary.
+      All correlations are run on z-scored variables per your request.
+        y_person_mean_col = 'ddp_density_all_person'
+    Returns a dict with results and helper DataFrames.
+    """
+    # keep cols and drop rows with missing needed pieces (for within we can allow partial, so don’t drop too aggressively yet)
+    cols_needed = [pid_col, x_col, y_col]
+    d = df[cols_needed].copy()
+
+    # -------------------------
+    # BETWEEN #1: mean(x) vs mean(y)
+    # -------------------------
+    d_between1 = d.dropna(subset=[x_col, y_col]).groupby(pid_col, as_index=False).agg(
+        mean_x=(x_col, "mean"),
+        mean_y=(y_col, "mean")
+    )
+    if d_between1["mean_x"].nunique() > 1 and d_between1["mean_y"].nunique() > 1:
+        r_b1, p_b1 = stats.pearsonr(zscore(d_between1["mean_x"]), zscore(d_between1["mean_y"]))
+    else:
+        r_b1, p_b1 = np.nan, np.nan
+
+    # -------------------------
+    # BETWEEN #2: y_person_mean_col vs sum_intention_col
+    # (assumed person-level, constant within PID)
+    # -------------------------
+    # Build a person-level table with these two columns
+    # If your df already has one row per PID for these columns, this will naturally deduplicate via .agg('first')
+    pers_level = df[[pid_col, y_person_mean_col, x_col]].dropna(subset=[y_person_mean_col, x_col]).copy()
+    pers_level = pers_level.groupby(pid_col, as_index=False).agg(
+        y_pm=(y_person_mean_col, "first"),
+        sum_int=(x_col, "first")
+    )
+    if pers_level["y_pm"].nunique() > 1 and pers_level["sum_int"].nunique() > 1:
+        r_b2, p_b2 = stats.pearsonr(zscore(pers_level["y_pm"]), zscore(pers_level["sum_int"]))
+    else:
+        r_b2, p_b2 = np.nan, np.nan
+
+    # -------------------------
+    # WITHIN: center x by person mean of x;
+    #         center y by the *provided person-level* y_person_mean_col
+    # -------------------------
+    # Merge in the person-level y_person_mean and (optionally) person-mean of x for centering
+    x_means = d.dropna(subset=[x_col]).groupby(pid_col)[x_col].mean().rename("_x_mean")
+    y_pm = df[[pid_col, y_person_mean_col]].dropna(subset=[y_person_mean_col]).drop_duplicates(pid_col).set_index(pid_col)[y_person_mean_col].rename("_y_pm")
+
+    dw = d.join(x_means, on=pid_col).join(y_pm, on=pid_col)
+
+    # compute centered variables
+    dw["_x_c"] = dw[x_col] - dw["_x_mean"]
+    dw["_y_c"] = dw[y_col] - dw["_y_pm"] / 24    # <-- key change: center y by your provided person-level column
+
+    # drop rows missing the centered variables
+    dw_valid = dw.dropna(subset=["_x_c", "_y_c"]).copy()
+
+    # (a) pooled within correlation (reference; p-value not cluster-robust)
+    if dw_valid["_x_c"].std(ddof=1) > 0 and dw_valid["_y_c"].std(ddof=1) > 0:
+        r_w_pooled, p_w_pooled = stats.pearsonr(zscore(dw_valid["_x_c"]), zscore(dw_valid["_y_c"]))
+    else:
+        r_w_pooled, p_w_pooled = np.nan, np.nan
+
+    # (b) per-person correlations + Fisher-z meta summary
+    per_person = []
+    zs, ws = [], []
+    for pid, g in dw_valid.groupby(pid_col):
+        if len(g) >= min_points_within:
+            sx = g["_x_c"].std(ddof=1)
+            sy = g["_y_c"].std(ddof=1)
+            if sx == 0 or sy == 0:
+                per_person.append((pid, np.nan, np.nan, len(g)))
+                continue
+            # standardize per your request (this doesn't change r)
+            r_i, p_i = stats.pearsonr(zscore(g["_x_c"]), zscore(g["_y_c"]))
+            # Fisher z
+            r_i_clip = np.clip(r_i, -0.999999, 0.999999)
+            z_i = np.arctanh(r_i_clip)
+            w_i = max(len(g) - 3, 0)  # weight ~ 1/Var(z)
+            if w_i > 0:
+                zs.append(z_i)
+                ws.append(w_i)
+            per_person.append((pid, r_i, p_i, len(g)))
+        else:
+            per_person.append((pid, np.nan, np.nan, len(g)))
+
+    per_person_df = pd.DataFrame(per_person, columns=[pid_col, "r_within_person", "p_within_person", "n_points"])
+    zs = np.asarray(zs, dtype=float)
+    ws = np.asarray(ws, dtype=float)
+
+    # keep only finite zs and positive finite weights
+    mask = np.isfinite(zs) & np.isfinite(ws) & (ws > 0)
+
+    if mask.sum() >= 1:
+        z_bar = np.average(zs[mask], weights=ws[mask])
+        se = 1.0 / np.sqrt(ws[mask].sum())
+        z_test = z_bar / se
+        p_two = 2 * (1 - stats.norm.cdf(abs(z_test)))
+        r_w_meta = np.tanh(z_bar)
+        p_w_meta = p_two
+    else:
+        r_w_meta, p_w_meta = np.nan, np.nan
+
+
+    return {
+        # Between-person
+        "between_original_r": r_b1,
+        "between_original_p": p_b1,
+        "between_pm_vs_sumint_r": r_b2,
+        "between_pm_vs_sumint_p": p_b2,
+        # Within-person
+        "within_meta_r": r_w_meta,           # Fisher-z weighted (recommended)
+        "within_meta_p": p_w_meta,
+        "within_pooled_r": r_w_pooled,       # pooled reference (not cluster-robust)
+        "within_pooled_p": p_w_pooled,
+
+    }
+
+'''# Helper frames
+        "between_person_means": d_between1,  # has mean_x, mean_y per PID
+        "person_level_table": pers_level,    # has y_pm and sum_int per PID
+        "per_person_corrs": per_person_df,   # r, p, n per PID
+        "within_long": dw_valid[ [pid_col, "_x_c", "_y_c"] ]  # useful for diagnostics'''
+
+## in the dt dataset
+"""'baseline_psmu',
+              'baseline_network_size', 'baseline_anxiety_score', 'baseline_depression_score',
+              'baseline_fomo', 'baseline_online_vigilance', 'baseline_automaticity', 'baseline_authenticity',
+              'baseline_smu_flourish_inspiration', 'baseline_smu_flourish_enjoyment',
+              'baseline_smu_flourish', 'baseline_nfc', 'baseline_mindset_valence', 'baseline_mindset_agency'"""
+tmpa = pd.DataFrame()
+for act in ['fav', 'fol', 'like', 'login', 'search', 'share', 'view', 'comment', 'post', 'all']:
+    for xvar in ['smu_intention','smu_motivation', 'happy', 'angry', 'inspired',
+       'lonely', 'distressed', 'life_satisfied', 'smu_experience_happy',
+       'smu_experience_meaningful', 'smu_experience_effortful',
+                 ]:
+        #xvar = 'smu_intention'
+        r1 = between_within_correlations_custom(dt, 'PID', x_col = xvar, y_col=f'ddp_num_{act}_burst',
+                                           y_person_mean_col = f"ddp_numperhour_{act}_person", )
+        tmp = pd.DataFrame.from_dict(r1, orient='index').T
+        tmp['act'] = act
+        tmp['ddp_measure'] = 'ddp_num_x_burst'
+        tmp['xvar'] = xvar
+        tmpa = pd.concat([tmpa, tmp], axis=0)
+
+tmpa.to_csv(res_path / 'ddp_corr_2h.csv', index=False)
+tmpa.loc[(tmpa['xvar'] == 'smu_intention') & (tmpa['act']=='view'),:].iloc[0]
+
+## check the two
+ch1  = pd.read_csv(folder_path / 'ddp_processed_60_0926.csv')
+ch2  = pd.read_csv(folder_path / 'ddp_processed_0924.csv')
+
+ch1.iloc[10][['PID', 'Start Date']]
+ch2.iloc[10][['PID', 'Start Date']]
+
+
+ch1.iloc[10][['PID', 'Start Date', 'ddp_num_view_burst']]
+ch2.iloc[10][['PID', 'Start Date', 'ddp_num_view_burst']]
+
+ch1.rename(columns={'ddp_num_view_burst':'c1'}, inplace=True)
+ch2.rename(columns={'ddp_num_view_burst':'c2'}, inplace=True)
+cc = pd.merge(ch1[['PID', 'Start Date', 'c1']], ch2[['PID', 'Start Date', 'c2']], on=['PID', 'Start Date'], how='inner')
+cc.loc[cc['c1']<cc['c2']]
+cc.loc[cc['c1']>cc['c2']]
+
+## clarify how to calculate the pearson correlation
+## d the scraping for the 2 hour version
+## do the search check for the one hour version
+
+## pre 0927
+dc.columns[0:50]
+dc.columns[50:100]
+dc.columns[100:150]
+dc.columns[150:200]
+
+
+for y in [x for x in dc.columns if ('_burst' in x) & ('ddp_' in x)]:
+    print(resaa[resaa[y].isna()].shape)
+    print(dc[dc[y].isna()].shape)
+    print(y)
+    print('\n')
+
+
+dc['ddp_num_view_burst'].value_counts(dropna=False)
+dc[dc[ddp_l].notna().any(axis=1)][ddp_l].iloc[9]
+
+## zoom intot tiktok use windows
+for dd in ddp_l:
+    print(dt.groupby(['smu_intention'])[dd].mean())
+
+
+
+dt1 = dt.groupby(['PID'])['ddp_num_view_burst'].mean().reset_index().rename(columns={'ddp_num_view_burst':'ddp_num_view_personmean'})
+dt = pd.merge(dt, dt1, how='left', on=['PID'])
+for col in ddp_l:
+    # 1. group by PID and compute mean
+    dt1 = (
+        dt.groupby(['PID'])[col]
+        .mean()
+        .reset_index()
+        .rename(columns={col: f"{col}_personmean"})
+    )
+
+    # 2. merge back into dt
+    dt = pd.merge(dt, dt1, how='left', on=['PID'])
+for col in ddp_l2:
+    # 1. group by PID and compute mean
+    dt1 = (
+        dt.groupby(['PID'])[col]
+        .mean()
+        .reset_index()
+        .rename(columns={col: f"{col}_personmean"})
+    )
+
+    # 2. merge back into dt
+    dt = pd.merge(dt, dt1, how='left', on=['PID'])
+
+for dd in ddp_l:
+    dt[f'{dd}_pmc'] = dt[dd] - dt[f"{dd.split('_burst')[0]}_burst_personmean"]
+    print(dt.groupby(['smu_intention'])[f'{dd}_pmc'].mean())
+
+coll = ['ddp_num_fav_burst', 'ddp_num_fav_person', 'ddp_density_fav_person',
+       'ddp_duration_fav_burst', 'ddp_matchtime_fav_burst',
+       'ddp_num_fol_burst', 'ddp_num_fol_person', 'ddp_density_fol_person',
+       'ddp_duration_fol_burst', 'ddp_matchtime_fol_burst',
+       'ddp_num_like_burst', 'ddp_num_like_person', 'ddp_density_like_person',
+       'ddp_duration_like_burst', 'ddp_matchtime_like_burst',
+       'ddp_num_login_burst', 'ddp_num_login_person',
+       'ddp_density_login_person', 'ddp_duration_login_burst',
+       'ddp_matchtime_login_burst', 'ddp_num_search_burst',
+       'ddp_num_search_person', 'ddp_density_search_person',
+       'ddp_duration_search_burst', 'ddp_matchtime_search_burst',
+       'ddp_num_share_burst', 'ddp_num_share_person',
+       'ddp_density_share_person', 'ddp_duration_share_burst',
+       'ddp_matchtime_share_burst', 'ddp_num_view_burst',
+       'ddp_num_view_person', 'ddp_density_view_person',
+       'ddp_duration_view_burst', 'ddp_matchtime_view_burst',
+       'ddp_num_comment_burst', 'ddp_num_comment_person',
+       'ddp_density_comment_person', 'ddp_duration_comment_burst',
+       'ddp_matchtime_comment_burst', 'ddp_used_days', 'ddp_active_days',
+       'ddp_num_post_burst', 'ddp_num_post_person', 'ddp_density_post_person',
+       'ddp_duration_post_burst', 'ddp_matchtime_post_burst']
+
+dt[['ddp_num_view_burst', 'ddp_duration_view_burst']]
+motl = ['motivation_coping_entertain', 'motivation_information_productivity', 'motivation_connection_expression',
+        'motivation_habitual_passing', 'motivation_trigger_driven', 'motivation_not_clear']
+ddp_l = [x for x in dc.columns if ('_burst' in x) & ('ddp_num_' in x)]
+ddp_l2 = [x for x in dc.columns if ('_burst' in x) & ('ddp_duration_' in x)]
+
+for var in motl:
+    print(var)
+    tm = dt.loc[dt[var]==1, :]
+
+    for dd in ['ddp_duration_view_burst']:#ddp_l2:
+        tm[f'{dd}_pmc'] = tm[dd] - tm[f"{dd.split('_burst')[0]}_burst_personmean"]
+        print(tm.groupby(['smu_intention'])[f'{dd}_pmc'].mean())
+
+    print('\n')
+
+all_pidindt = list(set(dt['PID'].tolist()))
+tt = dt.loc[dt['PID']==all_pidindt[2], :]
+tt[['smu_intention','smu_intention_text',  'ddp_num_view_burst_pmc']]
+tt[['smu_intention_text',  'ddp_num_view_burst_pmc']]
+
+ddp_l0 = [x for x in ddp_l if 'login' not in x]
+dt['num_acts'] = (dt[ddp_l] >= 1).sum(axis=1)
+dt['num_acts'].value_counts(dropna=False)
+dt.loc[dt['num_acts']==4, :].index
+dt.iloc[37][['smu_intention','smu_intention_text',  'ddp_duration_view_burst',
+             'ddp_num_fav_burst', 'ddp_num_fol_burst', 'ddp_num_like_burst', 'ddp_num_search_burst',
+             'ddp_num_share_burst', 'ddp_num_view_burst', 'ddp_num_comment_burst', 'ddp_num_post_burst']]
+dt.iloc[38][['smu_intention','smu_intention_text',  'ddp_duration_view_burst',
+             'ddp_num_fav_burst', 'ddp_num_fol_burst', 'ddp_num_like_burst', 'ddp_num_search_burst',
+             'ddp_num_share_burst', 'ddp_num_view_burst', 'ddp_num_comment_burst', 'ddp_num_post_burst']]
+dt.iloc[72][['smu_intention','smu_intention_text',  'ddp_duration_view_burst',
+             'ddp_num_fav_burst', 'ddp_num_fol_burst', 'ddp_num_like_burst', 'ddp_num_search_burst',
+             'ddp_num_share_burst', 'ddp_num_view_burst', 'ddp_num_comment_burst', 'ddp_num_post_burst']]
+dt.iloc[991][['smu_intention','smu_intention_text',  'ddp_duration_view_burst',
+             'ddp_num_fav_burst', 'ddp_num_fol_burst', 'ddp_num_like_burst', 'ddp_num_search_burst',
+             'ddp_num_share_burst', 'ddp_num_view_burst', 'ddp_num_comment_burst', 'ddp_num_post_burst']]
+
+
+num_l = [x for x in dt.columns if ('ddp_num' in x) & ('_burst' == x[-6:])]
+
+def _extract_timestamps(x):
+    """Return a list of pandas.Timestamp (UTC) from a cell that may be:
+       - NaN/None/empty tuple/list
+       - a single pd.Timestamp
+       - a tuple/list of pd.Timestamp
+       - a string like "Timestamp('...'), Timestamp('...')" or "()"
+    """
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return []
+    if isinstance(x, (list, tuple)):
+        return [pd.to_datetime(t, utc=True) for t in x if t is not None]
+    if isinstance(x, pd.Timestamp):
+        return [pd.to_datetime(x, utc=True)]
+    if isinstance(x, str):
+        # extract ISO-like strings inside Timestamp('...') or raw datetimes
+        # grabs things like 2025-07-16 17:59:56+0000 or 2025-07-16 17:59:56+00:00
+        s = x.strip()
+        if s in ("()", ""):
+            return []
+        matches = re.findall(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:?\d{2})?)", s)
+        if matches:
+            return [pd.to_datetime(m, utc=True) for m in matches]
+        # last resort: try to parse whole string (may fail; then return empty)
+        try:
+            return [pd.to_datetime(s, utc=True)]
+        except Exception:
+            return []
+    # unknown type -> try to cast
+    try:
+        return [pd.to_datetime(x, utc=True)]
+    except Exception:
+        return []
+
+def build_events_for_row(dt, row_idx, cols):
+    row = dt.iloc[row_idx]
+    events = []
+    for col in cols:
+        times = _extract_timestamps(row.get(col, None))
+        for t in times:
+            events.append({"row_id": row_idx, "time": t, "activity": col})
+    return pd.DataFrame(events, columns=["row_id", "time", "activity"])
+
+# example: build events for row i and plot
+i = 0  # <- change to the row you want
+events_df = build_events_for_row(dt, i, cols)
+assert dt.iloc[i][num_l].sum().astype(int) == events_df.shape[0]
+if events_df.empty:
+    print(f"No events to plot for row {i}.")
+else:
+    from matplotlib.dates import AutoDateLocator, AutoDateFormatter
+
+    fig, ax = plt.subplots(figsize=(10, 2.6))
+
+    # 为每个 activity 分配颜色（tab10/20 自动不同色）
+    activities = events_df["activity"].unique()
+    cmap = plt.get_cmap("tab20")
+    color_map = {act: cmap(i % 20) for i, act in enumerate(activities)}
+
+    # 画一条基线
+    ax.axhline(0, lw=1, color="#888", alpha=0.6)
+
+    if use_bars:
+        # 短条（如果你想把点显示成小段 bar）
+        width = pd.to_timedelta(bar_width_sec, unit="s")
+        for act in activities:
+            sub = events_df[events_df["activity"] == act]
+            ax.barh(
+                y=[0] * len(sub),
+                width=[width] * len(sub),
+                left=sub["time"],
+                height=0.35,
+                color=color_map[act],
+                alpha=0.95,
+                align="center",
+                edgecolor="none",
+                label=act
+            )
+    else:
+        # 散点（推荐）：所有点都在 y=0 这一条线上
+        for act in activities:
+            sub = events_df[events_df["activity"] == act]
+            ax.scatter(
+                sub["time"], [0] * len(sub),
+                s=28, marker='o',
+                color=color_map[act],
+                label=act
+            )
+
+    # 轴与格式
+    ax.set_yticks([])  # 不要 y 轴
+    ax.set_ylim(-0.9, 0.9)  # 给点上下留白
+    ax.set_xlabel("Time (UTC)")
+    ax.set_title(f"Activity timeline — row {row_idx}")
+
+    # 时间轴自动刻度与格式
+    locator = AutoDateLocator()
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(AutoDateFormatter(locator))
+    fig.autofmt_xdate()
+
+    # 图例放在上方
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.25),
+              ncol=min(len(activities), 4), frameon=False)
+
+    plt.tight_layout()
+    plt.savefig(res_path / f"ddp_plot_{i}.png", dpi=300)
+
+
+###
+def _extract_timestamps(x):
+    """Return list[pd.Timestamp(tz-aware UTC)] from a messy cell (NaN/(), list/tuple of Timestamps, single Timestamp, or string)."""
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return []
+    if isinstance(x, (list, tuple)):
+        return [pd.to_datetime(t, utc=True) for t in x if t is not None]
+    if isinstance(x, pd.Timestamp):
+        # ensure UTC
+        return [x.tz_convert("UTC") if x.tzinfo else pd.to_datetime(x, utc=True)]
+    if isinstance(x, str):
+        s = x.strip()
+        if s in ("()", ""):
+            return []
+        # find timestamps like 2025-07-16 17:59:56+0000 or +00:00
+        matches = re.findall(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:?\d{2})?)", s)
+        if matches:
+            return [pd.to_datetime(m, utc=True) for m in matches]
+        # last try: parse whole string
+        try:
+            return [pd.to_datetime(s, utc=True)]
+        except Exception:
+            return []
+    try:
+        return [pd.to_datetime(x, utc=True)]
+    except Exception:
+        return []
+
+def row_start_utc(row):
+    """Parse Start Date in row[COL_TZ] to UTC (tz-aware)."""
+    # try strict, then fallback; your format is like "07/16/2025 02:19PM"
+    dt_local = pd.to_datetime(row['Start Date'], errors="coerce", format="%m/%d/%Y %I:%M%p")
+    if pd.isna(dt_local):
+        dt_local = pd.to_datetime(row['Start Date'], errors="coerce")  # best-effort
+    if pd.isna(dt_local):
+        return pd.NaT
+
+    tz = row['timezone'] if pd.notna(row['timezone']) else "UTC"
+    try:
+        # localize then convert
+        dt_local = dt_local.tz_localize(str(tz))
+    except (TypeError, ValueError):
+        # if already tz-aware or bad tz, fall back
+        if dt_local.tzinfo is None:
+            dt_local = dt_local.tz_localize("UTC")
+    return dt_local.tz_convert("UTC")
+
+def session_bounds(row):
+    """Return (session_start_utc, session_end_utc). Session = 60min before Start, up to 1min before Start."""
+    start_utc = row_start_utc(row)
+    if pd.isna(start_utc):
+        return (pd.NaT, pd.NaT)
+    sess_start = start_utc - pd.Timedelta(minutes=60)
+    sess_end   = start_utc - pd.Timedelta(minutes=1)
+    return (sess_start, sess_end)
+
+def to_relative_minutes(ts_list, sess_start, sess_end, clip_to_window=True):
+    """Map absolute UTC timestamps to minutes since session start. Optionally drop outside [start,end]."""
+    if pd.isna(sess_start) or pd.isna(sess_end):
+        return []
+    rel = []
+    for t in ts_list:
+        if pd.isna(t):
+            continue
+        # ensure UTC
+        t = t.tz_convert("UTC") if t.tzinfo else pd.to_datetime(t, utc=True)
+        if clip_to_window and not (sess_start <= t <= sess_end):
+            continue
+        m = (t - sess_start).total_seconds() / 60.0
+        rel.append(m)
+    return rel
+
+def to_relative_secs(ts_list, sess_start, sess_end, clip_to_window=True):
+    """Map absolute UTC timestamps to minutes since session start. Optionally drop outside [start,end]."""
+    if pd.isna(sess_start) or pd.isna(sess_end):
+        return []
+    rel = []
+    for t in ts_list:
+        if pd.isna(t):
+            continue
+        # ensure UTC
+        t = t.tz_convert("UTC") if t.tzinfo else pd.to_datetime(t, utc=True)
+        if clip_to_window and not (sess_start <= t <= sess_end):
+            continue
+        m = (t - sess_start).total_seconds()
+        rel.append(m)
+    return rel
+# --- main transformation: add session bounds + relative minute lists per activity ---
+def add_session_and_relative_minutes(dt: pd.DataFrame) -> pd.DataFrame:
+    # compute per-row session bounds
+    bounds = dt.apply(session_bounds, axis=1, result_type='expand')
+    dt["session_start_utc"] = bounds[0]
+    dt["session_end_utc"]   = bounds[1]
+
+    # create relative-minute columns for each activity
+    for col in cols:
+        rel_col = f"{col}_relmin"   # e.g., ddp_matchtime_view_burst_relmin
+        def _map_row(row):
+            ts_list = _extract_timestamps(row[col])
+            return to_relative_minutes(ts_list, row["session_start_utc"], row["session_end_utc"], clip_to_window=True)
+        dt[rel_col] = dt.apply(_map_row, axis=1)
+
+        rel_col = f"{col}_relsec"   # e.g., ddp_matchtime_view_burst_relmin
+        def _map_row(row):
+            ts_list = _extract_timestamps(row[col])
+            return to_relative_secs(ts_list, row["session_start_utc"], row["session_end_utc"], clip_to_window=True)
+        dt[rel_col] = dt.apply(_map_row, axis=1)
+
+    return dt
+
+
+
+# --- optional: plot a single-row timeline on 0..60 minutes, colored by activity ---
+def plot_row_relative_timeline(dt, row_idx, activities=cols, use_bars=False, bar_width_min=0.25):
+    row = dt.iloc[row_idx]
+    sess_start, sess_end = row["session_start_utc"], row["session_end_utc"]
+    if pd.isna(sess_start) or pd.isna(sess_end):
+        print(f"Row {row_idx}: missing session bounds.")
+        return
+
+    # build tidy events (relative minutes)
+    events = []
+    for col in activities:
+        rel_col = f"{col}_relmin"
+        vals = row.get(rel_col, [])
+        if isinstance(vals, (list, tuple)):
+            for v in vals:
+                if 0 <= v <= 60:
+                    events.append({"minute": v, "activity": col})
+
+    if not events:
+        print(f"Row {row_idx}: no events in session.")
+        return
+
+    events_df = pd.DataFrame(events)
+
+    fig, ax = plt.subplots(figsize=(10, 2.6))
+    ax.axhline(0, lw=1, color="#888", alpha=0.6)
+
+    cmap = plt.get_cmap("tab20")
+    acts = events_df["activity"].unique()
+    color_map = {act: cmap(i % 20) for i, act in enumerate(acts)}
+
+    if use_bars:
+        width = bar_width_min
+        for act in acts:
+            sub = events_df[events_df["activity"] == act]
+            ax.barh([0]*len(sub), width=width, left=sub["minute"], height=0.35,
+                    color=color_map[act], edgecolor="none", label=act)
+    else:
+        for act in acts:
+            sub = events_df[events_df["activity"] == act]
+            ax.scatter(sub["minute"], [0]*len(sub), s=28, color=color_map[act], label=act)
+
+    ax.set_xlim(-1, 61)
+    ax.set_xticks(range(0, 61, 10))
+    ax.set_xlabel("Minutes since session start (UTC-aligned)")
+    ax.set_yticks([])
+
+    title = f"Row {row_idx} — session [{sess_start:%Y-%m-%d %H:%M}Z to {sess_end:%H:%M}Z]"
+    ax.set_title(title)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.25),
+              ncol=min(len(acts), 5), frameon=False)
+    plt.tight_layout()
+    plt.savefig(res_path / f"ddp_plot_{i}.png", dpi=300)
+
+
+def plot_row_relative_timeline_multiline(
+    dt, row_idx, activities=cols, use_bars=False, bar_width_min=0.25, bar_height=0.3
+):
+    """
+    plot events for one row:
+    - y axis = activity (dense ticks, small bar height)
+    - x axis = relative minutes in [0,60]
+    """
+    row = dt.iloc[row_idx]
+    sess_start, sess_end = row["session_start_utc"], row["session_end_utc"]
+    if pd.isna(sess_start) or pd.isna(sess_end):
+        print(f"Row {row_idx}: missing session bounds.")
+        return
+
+    # collect tidy events
+    events = []
+    for col in activities:
+        rel_col = f"{col}_relmin"
+        vals = row.get(rel_col, [])
+        if isinstance(vals, (list, tuple)):
+            for v in vals:
+                if 0 <= v <= 60:
+                    events.append({"minute": v, "activity": col})
+
+    if not events:
+        print(f"Row {row_idx}: no events in session.")
+        return
+
+    events_df = pd.DataFrame(events)
+
+    # desired order
+    activities_ordered = [
+        'ddp_matchtime_login_burst',
+        'ddp_matchtime_view_burst',
+        'ddp_matchtime_like_burst',
+        'ddp_matchtime_fav_burst',
+        'ddp_matchtime_fol_burst',
+        'ddp_matchtime_share_burst',
+        'ddp_matchtime_comment_burst',
+        'ddp_matchtime_search_burst',
+        'ddp_matchtime_post_burst'
+    ]
+
+    # corresponding display labels
+    activity_labels = [
+        "Login", "View", "Like", "Favorite", "Follow",
+        "Share", "Comment", "Search", "Post"
+    ]
+
+    # set up plotting
+    fig, ax = plt.subplots(figsize=(10, len(activities_ordered) * 0.08 + 2))
+
+    cmap = plt.get_cmap("tab20")
+    color_map = {act: cmap(i % 20) for i, act in enumerate(activities_ordered)}
+
+    if use_bars:
+        width = bar_width_min
+        for y, act in enumerate(activities_ordered):
+            sub = events_df[events_df["activity"] == act]
+            if sub.empty:
+                # still draw the colored row guide so label has a line
+                ax.hlines(y, xmin=-1, xmax=61, colors=color_map[act],
+                          linestyles=":", linewidth=1, alpha=0.6, zorder=0)
+                continue
+            ax.barh(
+                [y] * len(sub),
+                width=width,
+                left=sub["minute"],
+                height=bar_height,
+                color=color_map[act],
+                edgecolor="none",
+                alpha=0.9,
+                zorder=3
+            )
+            # colored horizontal guide for this activity row
+            ax.hlines(y, xmin=-1, xmax=61, colors=color_map[act],
+                      linestyles=":", linewidth=1, alpha=0.6, zorder=0)
+    else:
+        for y, act in enumerate(activities_ordered):
+            sub = events_df[events_df["activity"] == act]
+            if not sub.empty:
+                ax.scatter(
+                    sub["minute"], [y] * len(sub),
+                    s=20, color=color_map[act], label=act, zorder=3
+                )
+            # colored horizontal guide for this activity row
+            ax.hlines(y, xmin=-1, xmax=61, colors=color_map[act],
+                      linestyles=":", linewidth=1, alpha=0.6, zorder=0)
+
+    # axes, ticks, labels
+    ax.set_xlim(-1, 61)
+    ax.set_xticks(range(0, 61, 10))
+    ax.set_xlabel(f"Minutes since session start, UID: {row['UID']}")
+
+    ax.set_yticks(range(len(activities_ordered)))
+    ax.set_yticklabels(activity_labels)
+
+    # match y-tick label colors to activity colors
+    for ticklabel, act in zip(ax.get_yticklabels(), activities_ordered):
+        ticklabel.set_color(color_map[act])
+
+    # add small top/bottom padding so top label isn't on the border
+    ax.set_ylim(-0.5, len(activities_ordered) - 0.5)
+
+    # vertical grid (light grey dotted) for time reference; y-grid handled per-row above
+    ax.grid(axis="x", linestyle=":", color="lightgrey", alpha=0.5)
+
+    # ----- title (OffsetBox) -----
+    #from matplotlib.offsetbox import AnchoredOffsetbox, TextArea, HPacker
+
+    #smu = str(row["smu_intention_text"])
+    #pid = str(row["PID"])
+    #start = str(row["Start Date"])
+
+    #t_left = TextArea(smu, textprops=dict(fontsize=14, fontweight='bold'))
+    #t_right = TextArea(f"  PID: {pid}; Start Date: {start}", textprops=dict(fontsize=11))
+
+    #box = HPacker(children=[t_left, t_right], align="center", pad=0, sep=0)
+    '''anch = AnchoredOffsetbox(
+        loc='upper center', child=box, pad=0., frameon=False,
+        bbox_to_anchor=(0.5, 1.12), bbox_transform=ax.transAxes, borderpad=0.
+    )
+    ax.add_artist(anch)
+    '''
+    ax.set_title(f"Motivation: {row['smu_intention_text']}")
+
+    plt.tight_layout()
+    plt.savefig(res_path / f"ddpplot-{row['UID']}.png", dpi=300)
+
+# call once to enrich your dataframe
+dt = add_session_and_relative_minutes(dt)
+dt.to_csv(res_path / 'ema_tiktok_only_analysis.csv', index=False)
+for ri in dt.index[719:]:
+    plot_row_relative_timeline_multiline(dt, row_idx=ri)
+    print(f'{ri} done!')
+
+## check tiktok motivation
+motl = ['motivation_coping_entertain', 'motivation_information_productivity', 'motivation_connection_expression',
+        'motivation_habitual_passing', 'motivation_trigger_driven', 'motivation_not_clear']
+for c in motl:
+    print(dt[c].value_counts())
+
+## single row plot with duration
+# desired order
+activities_ordered = [
+    'ddp_matchtime_login_burst',
+    'ddp_matchtime_view_burst',
+    'ddp_matchtime_like_burst',
+    'ddp_matchtime_fav_burst',
+    'ddp_matchtime_fol_burst',
+    'ddp_matchtime_share_burst',
+    'ddp_matchtime_comment_burst',
+    'ddp_matchtime_search_burst',
+    'ddp_matchtime_post_burst'
+]
+
+# corresponding display labels
+activity_labels = [
+    "Login", "View", "Like", "Favorite", "Follow",
+    "Share", "Comment", "Search", "Post"
+]
+
+label_map = dict(zip(activities_ordered, activity_labels))
+
+def _as_list(x):
+    if x is None or (isinstance(x, float) and math.isnan(x)):
+        return []
+    if isinstance(x, (list, tuple)):
+        return list(x)
+    return [x]
+
+def plot_single_row_as_one_bar_with_durations(
+    dt: pd.DataFrame, row_idx: int,
+    activities=activities_ordered,
+    relmin_suffix="_relsec",
+    dur_suffix="_dur_sec",
+    alpha=0.3,
+    bar_height=1,
+    cmap_name="tab20"
+):
+    """
+    For the given row, plot ONE thin horizontal bar (y=0) spanning 0..60 minutes.
+    Each activity episode is a colored segment [start_min, start_min + dur/60].
+    Overlaps will show due to alpha. Activities are colored consistently by name.
+
+    Expects for each activity:
+        <activity>_relmin  -> list[float]  (start minutes)
+        <activity>_dur_sec -> list[float]  (durations in seconds), same length
+    """
+    row = dt.iloc[row_idx]
+
+    # collect segments per activity
+    segments_by_act = {}  # act -> list[(x_left, width_minutes)]
+    for act in ['ddp_matchtime_view_burst']:
+        start_col = f"{act}{relmin_suffix}"
+        dur_col   = f"{act}{dur_suffix}"
+
+        starts = _as_list(row.get(start_col, []))
+        durs   = _as_list(row.get(dur_col, [])) ## durs = [30]*88
+
+        # if lengths mismatch, truncate to min length
+        n = min(len(starts), len(durs))
+        if n == 0:
+            continue
+
+        segs = []
+        for s, d in zip(starts[:n], durs[:n]):
+            if s is None or d is None:
+                continue
+            try:
+                s = float(s)  # start time already in seconds
+                width = float(d)  # duration already in seconds
+            except Exception:
+                continue
+
+            # clip to session window [0, 3600] seconds
+            x0 = max(0.0, s)
+            x1 = min(3600.0, s + width)
+            if x1 <= 0 or x0 >= 3600 or x1 <= x0:
+                continue
+
+            segs.append((x0, x1 - x0))  # (start, width) in seconds
+
+        if segs:
+            segments_by_act[act] = segs
+
+    if not segments_by_act:
+        print(f"Row {row_idx}: no duration segments to plot.")
+        return
+
+    # colors
+    cmap = plt.get_cmap("tab20")
+    color_map = {act: cmap(i % 20) for i, act in enumerate(activities_ordered)}
+
+    # figure/axes
+    fig, ax = plt.subplots(figsize=(10, 2))
+
+    # light grey vertical grid for time reference
+    ax.set_xlim(0, 3600)
+    ax.set_xticks(range(0, 3601, 600))
+    ax.set_xticklabels([str(t // 60) for t in range(0, 3601, 600)])
+    ax.set_xlabel("Minutes since session start")
+    ax.grid(axis="x", linestyle=":", color="lightgrey", alpha=0.5)
+
+    # draw a base line for the single bar
+    ax.axhline(0, color="#888", lw=1, alpha=0.5, zorder=0)
+
+    # draw each activity's segments; later activities overlay earlier ones
+    # (you can control draw order by rearranging `activities`)
+    '''    for act in ['ddp_matchtime_view_burst']:
+            segs = segments_by_act.get(act, [])
+            if not segs:
+                continue
+            # broken_barh expects: ( (x, width), ... ),  (y, height)
+            ax.broken_barh(segs, ( -bar_height/2.0, bar_height ),
+                           facecolors=color_map[act], edgecolors='none',
+                           alpha=alpha, zorder=3, label=label_map.get(act, act))'''
+
+    for act in ['ddp_matchtime_view_burst']:
+        segs = segments_by_act.get(act, [])
+        if not segs:
+            continue
+
+        # main colored duration bars
+        ax.broken_barh(
+            segs, ( -bar_height/2.0, bar_height ),
+            facecolors=color_map[act], edgecolors='none',
+            alpha=alpha, zorder=3, label=label_map.get(act, act)
+        )
+
+        # 🔹 add a grey vertical line at the start of each segment
+        y0 = -bar_height/2.0
+        y1 =  bar_height/2.0
+        for x0, w in segs:                      # segs are (start, width)
+            ax.vlines(
+                x0, y0, y1,
+                color="lightgrey", linewidth=1.0, alpha=0.7, zorder=4
+            )
+
+    # y-axis: hide (one thin bar)
+    ax.set_yticks([])
+    ax.set_ylim(-0.8, 0.8)
+
+    # legend (only for activities that appear)
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        # de-duplicate while preserving order
+        seen = set(); handles2=[]; labels2=[]
+        for h, l in zip(handles, labels):
+            if l in seen: continue
+            seen.add(l); handles2.append(h); labels2.append(l)
+        ax.legend(handles2, labels2, loc="upper right", bbox_to_anchor=(1, 1.00),
+                  ncol=min(5, len(labels2)), frameon=False)
+
+    plt.tight_layout()
+    plt.savefig(res_path / f"ddpplot_2-{row['UID']}.png", dpi=300)
+
+dt.loc[dt['smu_intention']==5, 'UID']
+
+## find pattern
+smu_intent_num = 5
+for smu_intent_num in [1,2,3,4]:
+    target_path = res_path / f"smu_intent{smu_intent_num}"
+    target_path.mkdir(exist_ok=True)
+    uids = set(str(uid) for uid in dt.loc[dt["smu_intention"] == smu_intent_num, "UID"].dropna())
+
+    for file in res_path.glob("*.png"):
+        # check if UID string appears in filename
+        if any(uid in file.name for uid in uids):
+            # move file into target subfolder
+            shutil.move(str(file), str(target_path / file.name))
+            # if you prefer copy instead of move, use shutil.copy2(...)
+
+##
+dt.columns[-60:]
+## now let me check from something simple
+dt['ddp_num_all_burst'] = dt[ddp_l].sum(axis=1)
+person_level_num = [x for x in dt.columns if ('ddp_num_' in x) & ('_person' in x)]
+dt['ddp_num_all_person'] = dt[person_level_num].sum(axis=1)
+dt['ddp_density_all_person'] = dt['ddp_num_all_person'] / dt['ddp_active_days']
+
+dc['ddp_num_all_burst'] = dc[ddp_l].sum(axis=1)
+person_level_num = [x for x in dc.columns if ('ddp_num_' in x) & ('_person' in x)]
+dc['ddp_num_all_person'] = dc[person_level_num].sum(axis=1)
+dc['ddp_density_all_person'] = dc['ddp_num_all_person'] / dt['ddp_active_days']
+
+df = dt
+
+def zscore(s):
+    s = pd.Series(s)
+    sd = s.std(ddof=1)
+    if pd.isna(sd) or sd == 0:
+        return (s - s.mean()) * 0.0  # all zeros if constant
+    return (s - s.mean()) / sd
+
+def between_within_correlations_custom(
+    df: pd.DataFrame,
+    pid_col: str,
+    x_col: str,                  # e.g., 'smu_intention'
+    y_col: str,                  # e.g., 'ddp_num_all_burst'
+    y_person_mean_col: str,      # e.g., 'num_per_active_day'  (num/ddp_active_days), constant per PID
+    #sum_intention_col: str,      # e.g., 'sum_intention'       (constant per PID)
+    min_points_within: int = 3
+):
+    """
+    Computes:
+      - Between-person correlation (mean(x) vs mean(y))
+      - Between-person correlation (y_person_mean_col vs sum_intention_col)
+      - Within-person correlation where:
+          x is person-mean centered from x_col
+          y is centered using *y_person_mean_col* (NOT person-mean of y_col)
+        Reports pooled Pearson and Fisher-z meta-analytic summary.
+      All correlations are run on z-scored variables per your request.
+        y_person_mean_col = 'ddp_density_all_person'
+    Returns a dict with results and helper DataFrames.
+    """
+    # keep cols and drop rows with missing needed pieces (for within we can allow partial, so don’t drop too aggressively yet)
+    cols_needed = [pid_col, x_col, y_col]
+    d = df[cols_needed].copy()
+
+    # -------------------------
+    # BETWEEN #1: mean(x) vs mean(y)
+    # -------------------------
+    d_between1 = d.dropna(subset=[x_col, y_col]).groupby(pid_col, as_index=False).agg(
+        mean_x=(x_col, "mean"),
+        mean_y=(y_col, "mean")
+    )
+    if d_between1["mean_x"].nunique() > 1 and d_between1["mean_y"].nunique() > 1:
+        r_b1, p_b1 = stats.pearsonr(zscore(d_between1["mean_x"]), zscore(d_between1["mean_y"]))
+    else:
+        r_b1, p_b1 = np.nan, np.nan
+
+    # -------------------------
+    # BETWEEN #2: y_person_mean_col vs sum_intention_col
+    # (assumed person-level, constant within PID)
+    # -------------------------
+    # Build a person-level table with these two columns
+    # If your df already has one row per PID for these columns, this will naturally deduplicate via .agg('first')
+    pers_level = df[[pid_col, y_person_mean_col, x_col]].dropna(subset=[y_person_mean_col, x_col]).copy()
+    pers_level = pers_level.groupby(pid_col, as_index=False).agg(
+        y_pm=(y_person_mean_col, "first"),
+        sum_int=(x_col, "first")
+    )
+    if pers_level["y_pm"].nunique() > 1 and pers_level["sum_int"].nunique() > 1:
+        r_b2, p_b2 = stats.pearsonr(zscore(pers_level["y_pm"]), zscore(pers_level["sum_int"]))
+    else:
+        r_b2, p_b2 = np.nan, np.nan
+
+    # -------------------------
+    # WITHIN: center x by person mean of x;
+    #         center y by the *provided person-level* y_person_mean_col
+    # -------------------------
+    # Merge in the person-level y_person_mean and (optionally) person-mean of x for centering
+    x_means = d.dropna(subset=[x_col]).groupby(pid_col)[x_col].mean().rename("_x_mean")
+    y_pm = df[[pid_col, y_person_mean_col]].dropna(subset=[y_person_mean_col]).drop_duplicates(pid_col).set_index(pid_col)[y_person_mean_col].rename("_y_pm")
+
+    dw = d.join(x_means, on=pid_col).join(y_pm, on=pid_col)
+
+    # compute centered variables
+    dw["_x_c"] = dw[x_col] - dw["_x_mean"]
+    dw["_y_c"] = dw[y_col] - dw["_y_pm"] / 24    # <-- key change: center y by your provided person-level column
+
+    # drop rows missing the centered variables
+    dw_valid = dw.dropna(subset=["_x_c", "_y_c"]).copy()
+
+    # (a) pooled within correlation (reference; p-value not cluster-robust)
+    if dw_valid["_x_c"].std(ddof=1) > 0 and dw_valid["_y_c"].std(ddof=1) > 0:
+        r_w_pooled, p_w_pooled = stats.pearsonr(zscore(dw_valid["_x_c"]), zscore(dw_valid["_y_c"]))
+    else:
+        r_w_pooled, p_w_pooled = np.nan, np.nan
+
+    # (b) per-person correlations + Fisher-z meta summary
+    per_person = []
+    zs, ws = [], []
+    for pid, g in dw_valid.groupby(pid_col):
+        if len(g) >= min_points_within:
+            sx = g["_x_c"].std(ddof=1)
+            sy = g["_y_c"].std(ddof=1)
+            if sx == 0 or sy == 0:
+                per_person.append((pid, np.nan, np.nan, len(g)))
+                continue
+            # standardize per your request (this doesn't change r)
+            r_i, p_i = stats.pearsonr(zscore(g["_x_c"]), zscore(g["_y_c"]))
+            # Fisher z
+            r_i_clip = np.clip(r_i, -0.999999, 0.999999)
+            z_i = np.arctanh(r_i_clip)
+            w_i = max(len(g) - 3, 0)  # weight ~ 1/Var(z)
+            if w_i > 0:
+                zs.append(z_i)
+                ws.append(w_i)
+            per_person.append((pid, r_i, p_i, len(g)))
+        else:
+            per_person.append((pid, np.nan, np.nan, len(g)))
+
+    per_person_df = pd.DataFrame(per_person, columns=[pid_col, "r_within_person", "p_within_person", "n_points"])
+    zs = np.asarray(zs, dtype=float)
+    ws = np.asarray(ws, dtype=float)
+
+    # keep only finite zs and positive finite weights
+    mask = np.isfinite(zs) & np.isfinite(ws) & (ws > 0)
+
+    if mask.sum() >= 1:
+        z_bar = np.average(zs[mask], weights=ws[mask])
+        se = 1.0 / np.sqrt(ws[mask].sum())
+        z_test = z_bar / se
+        p_two = 2 * (1 - stats.norm.cdf(abs(z_test)))
+        r_w_meta = np.tanh(z_bar)
+        p_w_meta = p_two
+    else:
+        r_w_meta, p_w_meta = np.nan, np.nan
+
+
+    return {
+        # Between-person
+        "between_original_r": r_b1,
+        "between_original_p": p_b1,
+        "between_pm_vs_sumint_r": r_b2,
+        "between_pm_vs_sumint_p": p_b2,
+        # Within-person
+        "within_meta_r": r_w_meta,           # Fisher-z weighted (recommended)
+        "within_meta_p": p_w_meta,
+        "within_pooled_r": r_w_pooled,       # pooled reference (not cluster-robust)
+        "within_pooled_p": p_w_pooled,
+
+    }
+
+'''# Helper frames
+        "between_person_means": d_between1,  # has mean_x, mean_y per PID
+        "person_level_table": pers_level,    # has y_pm and sum_int per PID
+        "per_person_corrs": per_person_df,   # r, p, n per PID
+        "within_long": dw_valid[ [pid_col, "_x_c", "_y_c"] ]  # useful for diagnostics'''
+
+## in the dt dataset
+tmpa = pd.DataFrame()
+for act in ['fav', 'fol', 'like', 'login', 'search', 'share', 'view', 'comment', 'post', 'all']:
+    r1 = between_within_correlations_custom(dt, 'PID', x_col = 'smu_intention', y_col=f'ddp_num_{act}_burst',
+                                       y_person_mean_col = f'ddp_density_{act}_person', )
+    tmp = pd.DataFrame.from_dict(r1, orient='index').T
+    tmp['act'] = act
+    tmpa = pd.concat([tmpa, tmp], axis=0)
+
+## the other between level
+tmpb = pd.DataFrame()
+for x_col in ['happy', 'angry', 'inspired',
+       'lonely', 'distressed', 'life_satisfied', 'smu_experience_happy',
+       'smu_experience_meaningful', 'smu_experience_effortful', 'baseline_psmu',
+              'baseline_network_size', 'baseline_anxiety_score', 'baseline_depression_score',
+              'baseline_fomo', 'baseline_online_vigilance', 'baseline_automaticity', 'baseline_authenticity',
+              'baseline_smu_flourish_inspiration', 'baseline_smu_flourish_enjoyment',
+              'baseline_smu_flourish', 'baseline_nfc', 'baseline_mindset_valence', 'baseline_mindset_agency']:
+    for act in ['fav', 'fol', 'like', 'login', 'search', 'share', 'view', 'comment', 'post', 'all']:
+        y_col = f'ddp_num_{act}_person'
+        cols_needed = [pid_col, x_col, y_col]
+        d = dc[cols_needed].copy()
+        d_between1 = d.dropna(subset=[x_col, y_col]).groupby(pid_col, as_index=False).agg(
+            mean_x=(x_col, "mean"),
+            mean_y=(y_col, "mean")
+        )
+        if d_between1["mean_x"].nunique() > 1 and d_between1["mean_y"].nunique() > 1:
+            r_b1, p_b1 = stats.pearsonr(zscore(d_between1["mean_x"]), zscore(d_between1["mean_y"]))
+        else:
+            r_b1, p_b1 = np.nan, np.nan
+        tmp = pd.DataFrame([x_col, y_col, r_b1, p_b1], index=['x_col', 'y_col', 'r', 'p_value']). T
+        tmp['act'] = act
+        tmpb = pd.concat([tmpb, tmp], axis=0)
+    for act in ['fav', 'fol', 'like', 'login', 'search', 'share', 'view', 'comment', 'post', 'all']:
+        y_col = f'ddp_density_{act}_person'
+        cols_needed = [pid_col, x_col, y_col]
+        d = dc[cols_needed].copy()
+        d_between1 = d.dropna(subset=[x_col, y_col]).groupby(pid_col, as_index=False).agg(
+            mean_x=(x_col, "mean"),
+            mean_y=(y_col, "mean")
+        )
+        if d_between1["mean_x"].nunique() > 1 and d_between1["mean_y"].nunique() > 1:
+            r_b1, p_b1 = stats.pearsonr(zscore(d_between1["mean_x"]), zscore(d_between1["mean_y"]))
+        else:
+            r_b1, p_b1 = np.nan, np.nan
+        tmp = pd.DataFrame([x_col, y_col, r_b1, p_b1], index=['x_col', 'y_col', 'r', 'p_value']). T
+        tmp['act'] = act
+        tmpb = pd.concat([tmpb, tmp], axis=0)
+
+tmpa.to_csv(res_path / 'ddp_corr.csv', index=False)
+tmpb.to_csv(res_path / 'ddp_corr_personlevel.csv', index=False)
+
+## now merge the time of each video back
+dfa = pd.read_csv(res_path / 'ddp_scraped_all_oct4.csv')
+dfb = dfa
+save_url_all = pd.read_csv(folder_path / 'ddp_view_url_0924.csv') ## this is the 2 hour version
+save_url_all = pd.read_csv(folder_path / 'ddp_view_url_60_0926.csv') ## this is the 2 hour version
+dfb = dfb.drop_duplicates(subset=['id', 'video_duration']).reset_index(drop=True)
+save_url_allv = save_url_all.loc[save_url_all['activity']=='view',:].reset_index(drop=True)
+def extract_id(url):
+    try:
+        parts = str(url).split('/')
+        if len(parts) > 5:
+            return parts[5]
+        else:
+            return np.nan
+    except Exception:
+        return np.nan
+
+save_url_allv['id'] = save_url_allv['url'].apply(extract_id)
+dfb['id'] = dfb['id'].apply(lambda x: str(x))
+dfb.columns = [f'ttvinfo_{x}' if x!='id' else 'id' for x in dfb.columns ]
+save_url_allv = pd.merge(save_url_allv, dt[['PID', 'Start Date']], on=['PID', 'Start Date'], how='inner')
+
+save_url_allv = pd.merge(save_url_allv, dfb, on='id', how='left')
+save_url_allv.columns
+
+
+'''dc.loc[(dc['ddp_matchtime_view_burst']!='()') & (dc['ddp_matchtime_view_burst'].notna()), 'ddp_matchtime_view_burst'][39]
+dc.iloc[39][['PID', 'Start Date', 'ddp_matchtime_view_burst']]
+save_url_allv[['PID', 'Start Date', 'activity']]
+save_url_allv.loc[(save_url_allv['PID']=='55ec49b67480920010aaa4e8') & (save_url_allv['Start Date']=='07/16/2025 02:19PM') & (save_url_allv['activity']=='view'),
+['time_utc', 'ttvinfo_video_duration']]'''
+save_url_allv["time_utc"] = pd.to_datetime(save_url_allv["time_utc"], utc=True, errors="coerce")
+
+g = save_url_allv.loc[(save_url_allv['PID']=='55ec49b67480920010aaa4e8') & (save_url_allv['Start Date']=='07/16/2025 02:19PM') ,:]
+dc.loc[(dc['PID']=='55ec49b67480920010aaa4e8') & (dc['Start Date']=='07/16/2025 02:19PM'), 'UID']
+#dt.loc[(dt['PID']=='55ec49b67480920010aaa4e8') & (dt['Start Date']=='07/16/2025 02:19PM'), 'ddp_matchtime_view_burst_relmin']
+## chain sessions
+def _label_sessions_single_group(g: pd.DataFrame, gap_threshold_seconds: float) -> pd.DataFrame:
+    """
+    Assign session ids based on gap to next start.
+    gap = next_start - current_end
+    If gap < gap_threshold_seconds -> same session, else start a new session.
+      - threshold = 60 for "within 1 minute chains together"
+      - threshold = 0  for "only overlaps chain together"
+    """
+    g = g.sort_values("time_utc").copy()
+
+    # duration: treat NaNs as 46 sec
+    dur_sec = g["ttvinfo_video_duration"].fillna(46).astype(float)
+
+    # end_time = start + duration (seconds)
+    g["end_time"] = g["time_utc"] + pd.to_timedelta(dur_sec, unit="s")
+
+    # the next start time (to compare gap)
+    g["next_start"] = g["time_utc"].shift(-1)
+
+    # gap to next start, in seconds (last row will be NaN)
+    g["gap_to_next_sec"] = (g["next_start"] - g["end_time"]).dt.total_seconds()
+
+    # iterative assignment of session IDs
+    sess_ids = []
+    sess_id = 1
+    n = len(g)
+
+    idxs = g.index.tolist()
+    for i, idx in enumerate(idxs):
+        sess_ids.append(sess_id)
+        if i == n - 1:
+            break  # last row => session ends
+        gap = g.loc[idx, "gap_to_next_sec"]
+        # if no next start or can't compute gap, treat as boundary (new session)
+        if pd.isna(gap):
+            sess_id += 1
+        else:
+            # same session only if gap < threshold
+            if not (gap < gap_threshold_seconds):
+                sess_id += 1
+
+    g[f"session_id_thr{int(gap_threshold_seconds)}"] = sess_ids
+    return g
+
+def label_view_sessions(
+    df: pd.DataFrame,
+    group_cols=("PID", "Start Date"),
+    activity_col="activity",
+    activity_value="view"
+) -> pd.DataFrame:
+    """
+    For the subset (activity == activity_value), compute two session schemes:
+      - thr60: chain if gap < 60 sec
+      - thr0 : chain if gap < 0  sec (overlap only)
+    Returns a copy with columns:
+      end_time, next_start, gap_to_next_sec, session_id_thr60, session_id_thr0
+    """
+    out = df.copy()
+
+    # work only on the chosen activity
+    mask = out[activity_col].eq(activity_value)
+    sub = out.loc[mask].copy()
+
+    # Ensure time_utc is datetime with tz (UTC). If it's strings, convert:
+    #if not np.issubdtype(sub["time_utc"].dtype, np.datetime64):
+    #    sub["time_utc"] = pd.to_datetime(sub["time_utc"], utc=True, errors="coerce")
+
+    # Apply session labeling per PID + Start Date
+    # 1) threshold = 60s (within-1-minute chains)
+    sub_thr60 = (
+        sub.groupby(list(group_cols), group_keys=False)
+           .apply(_label_sessions_single_group, gap_threshold_seconds=60.0)
+    )
+
+    # 2) threshold = 0s (only overlaps chain)
+    #   We re-run from the original sub to avoid reusing columns; or just overwrite id column.
+    sub_thr0 = (
+        sub.groupby(list(group_cols), group_keys=False)
+           .apply(_label_sessions_single_group, gap_threshold_seconds=0.0)
+    )[["session_id_thr0"]]
+
+    # stitch the two id columns back together
+    sub_labeled = sub_thr60.join(sub_thr0)
+
+    # write back into the full df (only rows of the target activity get new cols)
+    cols_to_update = [
+        "end_time", "next_start", "gap_to_next_sec", "session_id_thr60", "session_id_thr0"
+    ]
+    out.loc[sub_labeled.index, cols_to_update] = sub_labeled[cols_to_update]
+
+    return out
+
+# -------------------------------
+# Example usage on your DataFrame:
+# save_url_allv has columns: ['PID','Start Date','activity','time_utc','ttvinfo_video_duration']
+# -------------------------------
+# df_labeled will contain:
+#  - end_time, next_start, gap_to_next_sec
+#  - session_id_thr60 (chain if gap<60s)
+#  - session_id_thr0  (chain if gap<0s)
+df_labeled = label_view_sessions(save_url_allv)
+
+# (Optional) see sessions for a specific PID + Start Date
+ex = df_labeled.loc[
+    (df_labeled["PID"] == "55ec49b67480920010aaa4e8")
+    & (df_labeled["Start Date"] == "07/16/2025 02:19PM")
+    & (df_labeled["activity"] == "view"),
+    ["time_utc", "ttvinfo_video_duration", "end_time", "gap_to_next_sec", "session_id_thr60", "session_id_thr0"]
+].sort_values("time_utc")
+print(ex)
+
+## get the use time in each session
+# --- prerequisites / safety ---
+# 1) ensure time_utc is tz-aware datetime
+df_labeled["time_utc"] = pd.to_datetime(df_labeled["time_utc"], utc=True, errors="coerce")
+
+# 2) ensure duration is numeric seconds (fill NaN with 46)
+df_labeled["ttvinfo_video_duration"] = pd.to_numeric(
+    df_labeled["ttvinfo_video_duration"], errors="coerce"
+).fillna(46.0)
+
+# 3) compute per-row end_time for view rows that have session_id_thr60 (others will become NaT)
+mask_view = df_labeled["session_id_thr60"].notna()
+df_labeled.loc[mask_view, "end_time"] = (
+    df_labeled.loc[mask_view, "time_utc"] +
+    pd.to_timedelta(df_labeled.loc[mask_view, "ttvinfo_video_duration"], unit="s")
+)
+
+# --- compute session-level start/end/duration ---
+# Key for a session: PID + Start Date + session_id_thr60
+keys = ["PID", "Start Date", "session_id_thr60"]
+
+# Work only on rows that belong to a labeled session
+sub = df_labeled.loc[mask_view, keys + ["time_utc", "end_time"]].copy()
+
+# Sort (optional but nice)
+sub = sub.sort_values(keys + ["time_utc"])
+
+# Per-session start/end
+sess_start = sub.groupby(keys)["time_utc"].min().rename("session_start_utc")
+sess_end   = sub.groupby(keys)["end_time"].max().rename("session_end_utc")
+
+sess_info = pd.concat([sess_start, sess_end], axis=1)
+# duration in seconds; clip at 0 just in case of weird ordering
+sess_info["session_duration_sec"] = (
+    (sess_info["session_end_utc"] - sess_info["session_start_utc"]).dt.total_seconds()
+).clip(lower=0)
+
+# --- attach session fields back to every row in that session ---
+df_labeled = df_labeled.merge(sess_info, on=keys, how="left")
+
+# --- overall daily duration per PID + Start Date (sum across sessions) ---
+# Note: sum **unique** session durations, not per-row duplicates.
+daily_total = (
+    sess_info.reset_index()
+             .groupby(["PID", "Start Date"], as_index=False)["session_duration_sec"]
+             .sum()
+             .rename(columns={"session_duration_sec": "total_use_duration_sec"})
+)
+
+# attach daily total back to all rows (for convenience)
+df_labeled = df_labeled.merge(daily_total, on=["PID", "Start Date"], how="left")
+
+# (optional) also provide minutes
+df_labeled["session_duration_min"] = df_labeled["session_duration_sec"] / 60.0
+df_labeled["total_use_duration_min"] = df_labeled["total_use_duration_sec"] / 60.0
+
+session_counts = (
+    df_labeled
+    .dropna(subset=["session_id_thr60"])
+    .groupby(["PID", "Start Date"])["session_id_thr60"]
+    .nunique()
+    .reset_index(name="n_sessions_thr60")
+)
+session_counts2 = (
+    df_labeled
+    .dropna(subset=["session_id_thr0"])
+    .groupby(["PID", "Start Date"])["session_id_thr0"]
+    .nunique()
+    .reset_index(name="n_sessions_thr0")
+)
+
+# Merge back into your full DataFrame
+df_labeled = df_labeled.merge(session_counts, on=["PID", "Start Date"], how="left")
+df_labeled = df_labeled.merge(session_counts2, on=["PID", "Start Date"], how="left")
+
+# Rows without any sessions will get NaN, fill with 0 if you want
+df_labeled["n_sessions_thr60"] = df_labeled["n_sessions_thr60"].fillna(0).astype(int)
+df_labeled["n_sessions_thr0"] = df_labeled["n_sessions_thr0"].fillna(0).astype(int)
+
+df_labeled.loc[df_labeled['n_sessions_thr60']==1, ['session_duration_sec', 'total_use_duration_sec']] ## check they should be the same! yay!
+df_labeled.to_csv(res_path / 'ddp_session_info_merge_with_use_120.csv', index=False)
+df_labeled.to_csv(res_path / 'ddp_session_info_merge_with_use_60.csv', index=False)
+
+## merge back to what I have for correlation analysis
+dfsession = df_labeled[["PID", "Start Date", "n_sessions_thr60", 'total_use_duration_sec', "n_sessions_thr0", ]].drop_duplicates().reset_index(drop=True)
+dc = pd.merge(dc, dfsession, on=["PID", "Start Date"], how='left')
+dt = pd.merge(dt, dfsession, on=["PID", "Start Date"], how='left')
+dt['ddp_numpersec_view_burst'] = dt['ddp_num_view_burst'] / dt['total_use_duration_sec']
+dt['ddp_numfastswipe_view_burst'] = dt['ddp_num_view_burst'] - dt['n_sessions_thr0']
+dt['ddp_numfastswipepersec_view_burst'] = dt['ddp_numfastswipe_view_burst'] / dt['total_use_duration_sec']
+
+pid_totals = (
+    dt.groupby("PID", as_index=False)
+      .agg(
+          ddp_numtotfromburst_view_person=("ddp_num_view_burst", "sum"),
+          ddp_numtotfastswipefromburst_view_person=("ddp_numfastswipe_view_burst", "sum"),
+          ddp_durationfromburst_view_person=("total_use_duration_sec", "sum"),
+          ddp_meansession60fromburst_view_person=("n_sessions_thr60", "mean"),
+          ddp_meansession0fromburst_view_person=("n_sessions_thr0", "mean"),
+          ddp_meanfastswipefromburst_view_person=("ddp_numfastswipe_view_burst", "mean"),
+      )
+)
+
+pid_totals["ddp_numpersec_view_person"] = (
+    pid_totals["ddp_numtotfromburst_view_person"] / pid_totals["ddp_durationfromburst_view_person"]
+)
+pid_totals["ddp_numfastswipepersec_view_person"] = (
+    pid_totals["ddp_numtotfastswipefromburst_view_person"] / pid_totals["ddp_durationfromburst_view_person"]
+)
+dt = dt.merge(
+    pid_totals[["PID", 'ddp_numtotfromburst_view_person',
+       'ddp_durationfromburst_view_person',
+       'ddp_meansession60fromburst_view_person', 'ddp_meansession0fromburst_view_person','ddp_meanfastswipefromburst_view_person',
+                'ddp_numpersec_view_person', 'ddp_numfastswipepersec_view_person']],
+    on="PID",
+    how="left"
+)
+r0 = between_within_correlations_custom(dt, 'PID', x_col = 'smu_intention', y_col='ddp_num_view_burst',
+                                       y_person_mean_col = f'ddp_num_view_burst', )
+r1 = between_within_correlations_custom(dt, 'PID', x_col = 'smu_intention', y_col='ddp_numpersec_view_burst',
+                                       y_person_mean_col = f'ddp_numpersec_view_person', )
+r12 = between_within_correlations_custom(dt, 'PID', x_col = 'smu_intention', y_col='ddp_numfastswipepersec_view_burst',
+                                       y_person_mean_col = f'ddp_numfastswipepersec_view_person', )
+r2 = between_within_correlations_custom(dt, 'PID', x_col = 'smu_intention', y_col='total_use_duration_sec',
+                                       y_person_mean_col = f'ddp_durationfromburst_view_person', )
+r3 = between_within_correlations_custom(dt, 'PID', x_col = 'smu_intention', y_col='n_sessions_thr60',
+                                       y_person_mean_col = f'ddp_meansession60fromburst_view_person', )
+r4 = between_within_correlations_custom(dt, 'PID', x_col = 'smu_intention', y_col='n_sessions_thr0',
+                                       y_person_mean_col = f'ddp_meansession0fromburst_view_person', )
+r5 = between_within_correlations_custom(dt, 'PID', x_col = 'smu_intention', y_col='ddp_numfastswipe_view_burst',
+                                       y_person_mean_col = f'ddp_meanfastswipefromburst_view_person', )
+r42 = between_within_correlations_custom(dt, 'PID', x_col = 'smu_intention', y_col='n_sessions_thr0',
+                                       y_person_mean_col = f'n_sessions_thr0', )
+r52 = between_within_correlations_custom(dt, 'PID', x_col = 'smu_intention', y_col='ddp_numfastswipe_view_burst',
+                                       y_person_mean_col = f'ddp_numfastswipe_view_burst', )
+pd.DataFrame.from_dict(r12, orient='index')
+pd.DataFrame.from_dict(r2, orient='index')
+pd.DataFrame.from_dict(r3, orient='index')
+pd.DataFrame.from_dict(r4, orient='index')
+pd.DataFrame.from_dict(r5, orient='index')
+pd.DataFrame.from_dict(r42, orient='index')
+pd.DataFrame.from_dict(r52, orient='index')
+pd.DataFrame.from_dict(r0, orient='index')
+
+df_labeled.to_csv(res_path / 'ddp_view_url_0913.csv', index=False) ## video tt url levle analysis, with the merg key, video info scraped from tiktok
+dt.to_csv(res_path / 'ema_tiktok_only_analysis_0913.csv', index=False)
+
+
+## create the search --> video zoom out as the behavioral indicator
+example_pid_search = '61001d9b2e3d8a75a09f3db3'
+data_video_file_exist = 'ddp_ttside_0913.csv'
+dfb0 = pd.read_csv(res_path / data_video_file_exist)
+data_video_file = 'ddp_ttside_0925.csv'
+dfb1 = pd.read_csv(res_path / data_video_file)
+dfb = pd.concat([dfb0, dfb1], axis=0)
+dfb = dfb.drop_duplicates(subset=['id', 'video_duration']).reset_index(drop=True)
+dfb['id'] = dfb['id'].apply(lambda x: str(x))
+dfb.columns = [f'ttvinfo_{x}' if x != 'id' else 'id' for x in dfb.columns]
+
+import sys
+sys.path.append("D:\\pycharm\\.venv\\code\\ddp")
+from tools import *
+
+## define prompt
+def _get_prompt_vs_relevance(video_info, search_term):
+    prompt_21 = textwrap.dedent(f"""\
+                    "You are given a video description and a search query. "
+                    "Decide if the video is relevant to the query. "
+                    "Answer only with '1' if relevant, or '0' if not.\n\n"
+                    f"Video description: {video_info}\n"
+                    f"Search query: {search_term}"
+                """)
+
+    return prompt_21
+
+## defe client
+api_key = ''
+client = ChatOpenAI(temperature=0,
+                   model='gpt-5-mini',
+                   openai_api_key=api_key,
+                   logprobs=True)
+
+save_url_all2 = pd.read_csv(folder_path / 'ddp_view_url_0924.csv')
+save_url_all = pd.read_csv(folder_path / 'ddp_view_url_60_0926.csv')
+
+res_vsa = pd.DataFrame()
+vs_save_name = 'ddp_view_search_relevance_0926.csv'
+pidd_suv_view_0 = []
+pidd_suv_view_1 = []
+j = 0
+for pidd in [x for x in dt['PID'].unique()][0:]: # if x != '61001d9b2e3d8a75a09f3db3'
+
+    sua = save_url_all.loc[save_url_all['PID'] == pidd,:]
+
+    if sua.shape[0] >0 :
+        save_url_allv = sua.loc[sua['activity']=='view',:].reset_index(drop=True)
+        def extract_id(url):
+            try:
+                parts = str(url).split('/')
+                if len(parts) > 5:
+                    return parts[5]
+                else:
+                    return np.nan
+            except Exception:
+                return np.nan
+        save_url_allv['id'] = save_url_allv['url'].apply(extract_id)
+
+         # handle the view info
+        save_url_allv = pd.merge(save_url_allv, dfb, on='id', how='left')
+        sua_view = save_url_allv[save_url_allv['ttvinfo_username'].notna()]
+        if sua_view.shape[0]>0:
+            sua_view['VID'] = sua_view[['PID', 'Start Date', 'url', 'time_utc']].apply(lambda x: '$'.join(x.tolist()), axis=1)
+
+            # handle the search info
+            search_temp = sua.loc[sua['activity']=='search',['url', 'time_utc', 'time', 'Start Date', 'PID']]
+            search_temp.columns = ['ttact_search_term', 'search_time_utc', 'search_time', 'Start Date', 'PID']
+            res_search = (
+                search_temp
+                .groupby(['Start Date', 'PID'])['ttact_search_term']
+                .apply(lambda x: ', '.join(x.astype(str)))  # join as string
+                .reset_index()
+            )
+
+             # merge search info with view info
+            sua_vs_res_a = pd.DataFrame(columns=['VID', 'video_search_relevance'])
+            for k in range(0, search_temp.shape[0]):
+                print(f'start {k}, total is {search_temp.shape[0]} for this person, the {j} th person')
+               # now first consider if there is only one search
+                sua_vs = pd.merge(sua_view, pd.DataFrame(search_temp.iloc[k]).T, on=['PID', 'Start Date'], how='inner')
+                sua_vs['ttvideo_info'] = sua_vs[['ttvinfo_voice_to_text', 'ttvinfo_video_description',
+                'ttvinfo_hashtag_names']].apply(lambda x: f"Video hashtag: {x['ttvinfo_hashtag_names']}; "
+                                                                 f"Video description: {x['ttvinfo_video_description']}"
+                                                                 f"Video vioce-to-text: {x['ttvinfo_voice_to_text']}", axis=1)
+                # for each row in sua_vs, if search_time_utc is <= time_utc (both are in object format need to become time stamp), compare the content below
+                #sua_vs[['ttvideo_info', 'ttact_search_term']]
+
+                # convert time columns to datetime
+                sua_vs['search_time_utc'] = pd.to_datetime(sua_vs['search_time_utc'])
+                sua_vs['time_utc'] = pd.to_datetime(sua_vs['time_utc'])
+
+
+                # function to query GPT-5 to check relevance
+                def check_relevance(video_info, search_term):
+                    """
+                    video_info: str, content of the video
+                    search_term: str, the search query
+                    prompt_template: str, optional custom prompt with placeholders {video} and {query}
+                    """
+                    try:
+                        prompt_template = _get_prompt_vs_relevance(video_info, search_term)
+                        response = self_consistency_gen(prompt=prompt_template, model=client, num_iterations=5)
+                        cat_res, other_res, n_unique, all_res = assess_self_consistency_perplexity2(response)
+
+                        result = cat_res
+                        print('done minimal')
+                        return result if result in ["0", "1"] else "0"  # fallback safety
+
+                    except:
+                        print('not done minimal')
+                        return 'gpt failed'
+
+
+                # apply logic row by row
+                def assign_relevance(row):
+                    if row['search_time_utc'] > row['time_utc']:
+                        return "not"
+                    else:
+                        return check_relevance(row['ttvideo_info'], row['ttact_search_term'])
+
+                print(f'expect {sua_vs.shape[0]}')
+                sua_vs['video_search_relevance'] = sua_vs.apply(assign_relevance, axis=1)
+                #row = sua_vs.iloc[0]
+                #video_info = row['ttvideo_info']
+                #search_term = row['ttact_search_term']
+                # if sua_vs['ttvideo_info'] is related to sua_vs['ttact_search_term'] we think the video is relevant to the search item,
+                # thus, we give this row a new column: video_search_relevance = '1'
+                # if the sua_vs['ttvideo_info'] is NOT related to sua_vs['ttact_search_term']
+                # thus, we give the column: video_search_relevance = '0'
+                # if search_time_utc is > time_utc: video_search_relevance = 'not'
+                # now hypothetically,
+                #sua_vs['video_search_relevance'] = [1,1,0,1,1,1,1,1,1,1,-1]
+                # we save the result
+                sua_vs_res = sua_vs[['VID', 'video_search_relevance']]
+                if len(set(sua_vs_res['VID'].tolist()).intersection(set(sua_vs_res_a['VID'].tolist()))) > 0:
+                    sua_vs_res.columns = ['VID', 'video_search_relevance_new']
+                    vid_dup = set(sua_vs_res['VID'].tolist()).intersection(set(sua_vs_res_a['VID'].tolist()))
+
+                    sua_vs_res_a_1 = sua_vs_res_a.loc[sua_vs_res_a['VID'].isin(list(vid_dup)),:]
+                    sua_vs_res_a_0 = sua_vs_res_a.loc[-sua_vs_res_a['VID'].isin(list(vid_dup)),:]
+                    sua_vs_res_a_1 = pd.merge(sua_vs_res_a_1, sua_vs_res, on='VID', how='left')
+                    sua_vs_res_a_1['video_search_relevance'] = sua_vs_res_a_1[['video_search_relevance', 'video_search_relevance_new']].apply(
+                        lambda x: ', '.join([str(y) for y in x.tolist()]) , axis=1
+                    )
+                    sua_vs_res_a_0['video_search_relevance'] = sua_vs_res_a_0['video_search_relevance'].astype(str)
+                    sua_vs_res_a = pd.concat([sua_vs_res_a_0, sua_vs_res_a_1[['VID', 'video_search_relevance']]], axis=0)
+
+                else:
+                    sua_vs_res_a = pd.concat([sua_vs_res_a, sua_vs_res], axis=0)
+                    sua_vs_res_a['video_search_relevance'] = sua_vs_res_a['video_search_relevance'].astype(str)
+
+            assert pd.merge(sua_view[['PID', 'Start Date', 'VID']], sua_vs_res_a, on=['VID'], how='inner').shape[0] == sua_vs_res_a.shape[0]
+            sua_vs_res_a = pd.merge(sua_view[['PID', 'Start Date', 'VID']], sua_vs_res_a[['VID', 'video_search_relevance']], on=['VID'], how='inner')
+            sua_vs_res_a['vs_relevance_simp'] = sua_vs_res_a['video_search_relevance'].apply(lambda x: 1 if '1' in x else 0)
+
+            res = (
+                sua_vs_res_a
+                .groupby(['PID', 'Start Date'])['vs_relevance_simp']
+                .agg(
+                    vs_list=lambda x: x.tolist(),
+                    vs_count_1=lambda x: sum(val == 1 for val in x),
+                    vs_mean=lambda x: np.mean([1 if v == 1 else 0 for v in x if v in [0,1]]) if any(
+                        v in [0,1] for v in x) else np.nan
+                )
+                .reset_index()
+            )
+
+            res = pd.merge(res, res_search, on=['PID', 'Start Date'], how='left')
+
+            res_vsa = pd.concat([res_vsa, res], axis=0)
+            res_vsa.to_csv(res_path / vs_save_name, index=False)
+            j = j+1
+            print(f'{pidd} done, it is the {j} th.')
+
+        else:
+            pidd_suv_view_0.append(pidd)
+            print(f'{pidd} not exist suv_view')
+
+    else:
+        pidd_suv_view_1.append(pidd)
+        print(f'{pidd} not exist suv')
+## holes:
+# scrap the tiktok video information
+# need to better define what is relevance -- need human check
+# clean other existing signals with the 2 hour frame
+# think about other active seleciton data signals
+
+res_vsa2 = pd.read_csv(res_path / vs_save_name)
+
+dtt = pd.merge(dt, res_vsa2[['PID', 'Start Date', 'vs_count_1', 'vs_mean']], on=['PID', 'Start Date'], how='inner')
+from scipy.stats import pearsonr
+pearsonr(dtt['smu_intention'], dtt['vs_mean'])
